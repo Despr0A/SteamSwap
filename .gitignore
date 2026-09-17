@@ -1,0 +1,98 @@
+config/credentials.json
+config/app_config.json
+config/accounts.json
+config/playwright_steam/
+config/playwright_buff/
+
+# 本机环境与运行状态
+.env
+.env.*
+!.env.example
+.agreed_disclaimer
+*.log
+
+# 数据库与缓存
+config/app.db
+config/app.db-journal
+config/app.db-wal
+config/app.db-shm
+config/steam_market_history.db
+config/steam_market_history.db-*
+config/steam_reference_prices.db
+config/steam_reference_prices.db-*
+config/exchange_rate.json
+config/steam_userdata.json
+config/holdings_report_last.json
+config/buff_request_policy.json
+config/buff_request_policy.json.tmp
+config/.buff_request_policy.json.*.tmp
+config/buff_checkout_guard.json
+config/buff_checkout_guard.json.lock
+config/.buff_checkout_guard.json.*.tmp
+config/.credentials.json.*.tmp
+config/transactions.json.bak
+
+# 日志
+log/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+build/
+dist/
+*.egg-info/
+
+# 测试与开发工具
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+.vscode/
+.idea/
+
+# 操作系统
+.DS_Store
+Thumbs.db
+desktop.ini
+
+
+
+  @'
+
+  # 本机环境与运行状态
+  .env
+  .env.*
+  !.env.example
+  .agreed_disclaimer
+  *.log
+
+  # 数据库与运行数据
+  config/*.db
+  config/*.db-*
+  config/playwright_steam/
+  config/playwright_buff/
+
+  # 测试与开发工具
+  .pytest_cache/
+  .coverage
+  coverage.xml
+  htmlcov/
+  .mypy_cache/
+  .ruff_cache/
+
+  # 编辑器与系统文件
+  .vscode/
+  .idea/
+  .DS_Store
+  Thumbs.db
+  desktop.ini
+
+  # Python 构建产物
+  build/
+  dist/
+  *.egg-info/
+  '@ | Add-Content -LiteralPath '.gitignore'
