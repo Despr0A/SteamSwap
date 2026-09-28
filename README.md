@@ -1,7 +1,7 @@
 <div align="center">
 
 
-<h1>⚗️ AetherSwap</h1>
+<h1>⚗️ SteamSwap</h1>
 
 <p><strong>全自动、零代码配置的 Steam 低价余额助手</strong><br>跨区购买 · 行情分析 · 数据复盘 · 全可视化控制台</p>
 
@@ -38,6 +38,25 @@
 > 本项目旨在**为新手降低“倒余额”门槛，为老手节省时间**。
 > 请注意，本程序并非专门的套利工具，也不是万能的无风险低价获取余额的神器。自动购买的饰品在经历 7 天（或数天）的交易冷却期后，其市场表现大部分情况下会趋于您所期望的余额价格。但这并非绝对保证，7 天冷却期结束后的实际折扣比例**有可能上升，也有可能下降**。
 > **如果您的目的是在短时间内快速获取余额，本工具并不适合您。**
+
+---
+
+## 🔄 项目来源与改版说明
+
+**SteamSwap 是基于 [AetherSwap](https://github.com/) 的个人改版与持续维护版本。** 本项目保留原项目“Steam 饰品跨区购买、上架与余额管理”的核心思路，但已针对实际使用场景进行了较大范围的功能扩展、稳定性加固和界面重制；它不是对原项目的简单复制。
+
+### 相对原项目的主要修改
+
+- **全新的项目定位与品牌**：项目正式更名为 `SteamSwap`，代码仓库、README、界面展示和运行提示均以新名称为准。
+- **策略中心**：新增可视化策略工作区，支持系统策略、自定义策略、模块化参数、策略校验、模拟运行，以及买入/卖出策略的独立切换。
+- **交易流程重构**：完善从选品、价格参考、BUFF 下单、支付确认、收货、Steam 上架到成交记录的完整流水线，并增加订单状态持久化、超时处理和错误修复工具。
+- **Steam 账号与安全能力**：加入内嵌登录、Cookie 备用流程、Steam Guard 令牌生成与自动确认、账号区域同步，以及库存、挂单和历史数据管理。
+- **代理与请求保护**：新增代理池管理，支持自定义代理和动态代理轮换，并通过请求频率限制、重试和风控保护降低异常请求风险。
+- **通知与无人值守**：支持 Windows 通知中心、邮件/IMAP 付款确认和 PushPlus 推送，使桌面运行与服务器运行都能获得关键状态提醒。
+- **部署方式扩展**：支持 Windows 桌面、Linux/无桌面服务器和 Docker 部署，并提供自动运行模式判断、监听地址/端口配置和服务模式启动选项。
+- **数据分析与可维护性**：新增历史行情、库存、交易和盈亏分析，使用 CV、R² 等指标辅助选品，并补充配置校验、数据库修复、日志与大量自动化测试。
+
+> 原项目的版权、许可证和基础设计仍应以其原始仓库及许可证说明为准。本改版仅代表当前仓库的独立修改与维护，不代表原作者立场。
 
 ---
 
@@ -126,8 +145,8 @@
 **第 1 步：克隆项目**
 
 ```bash
-git clone https://github.com/vexed-wilson/AetherSwap.git
-cd AetherSwap
+git clone https://github.com/Despr0A/SteamSwap.git
+cd SteamSwap
 ```
 
 **第 2 步：安装依赖**
@@ -159,7 +178,7 @@ Windows 通知依赖随桌面依赖安装：
 python -m pip install -r requirements.txt
 ```
 
-如果此前已经安装过依赖，请重新执行上面的命令以安装 `winrt-Windows.UI.Notifications`、`winrt-Windows.Data.Xml.Dom` 和 `pywin32`。通知发送优先使用 WinRT 通知中心 API，并使用 `AetherSwap` 作为应用标识；首次发送时会在当前用户开始菜单注册同名快捷方式，使未打包的 Python 程序也能被 Windows 通知中心识别。未安装 WinRT 投影时才尝试 PowerShell 兼容方式。
+如果此前已经安装过依赖，请重新执行上面的命令以安装 `winrt-Windows.UI.Notifications`、`winrt-Windows.Data.Xml.Dom` 和 `pywin32`。通知发送优先使用 WinRT 通知中心 API，并使用 `SteamSwap` 作为应用标识；首次发送时会在当前用户开始菜单注册同名快捷方式，使未打包的 Python 程序也能被 Windows 通知中心识别。未安装 WinRT 投影时才尝试 PowerShell 兼容方式。
 
 无前端运行并自动启动买入流水线：
 
@@ -177,7 +196,7 @@ python run.py --no-ui --start-pipeline --observe-reference-prices
 
 也可在 Web 控制台的“系统设置 → 交易模式”中启用“仅检测价格，不进行交易”；该设置会保存到配置中。观测模式会逐个检测候选的 Steam 参考价并写入参考价库，且在交易层强制阻止创建 BUFF 订单。
 
-待付款订单会显示 Windows 通知中心侧边栏通知，付款链接会输出到该命令运行的终端。在交互式终端中完成付款后，输入 `y` 并按 Enter 即可继续；输入 `n` 并按 Enter 取消本次付款。命令行、邮件确认和 Web 控制台的“已完成支付”按钮共享同一确认结果，任一方式先确认即可继续。Windows 通知默认开启，可在 `notify.windows_toast_enabled` 设为 `false` 关闭。Windows 依赖安装后会优先使用 WinRT 通知 API；通知需要在已登录的 Windows 桌面会话中运行，并确认 Windows 的“通知和操作”设置没有屏蔽 AetherSwap。
+待付款订单会显示 Windows 通知中心侧边栏通知，付款链接会输出到该命令运行的终端。在交互式终端中完成付款后，输入 `y` 并按 Enter 即可继续；输入 `n` 并按 Enter 取消本次付款。命令行、邮件确认和 Web 控制台的“已完成支付”按钮共享同一确认结果，任一方式先确认即可继续。Windows 通知默认开启，可在 `notify.windows_toast_enabled` 设为 `false` 关闭。Windows 依赖安装后会优先使用 WinRT 通知 API；通知需要在已登录的 Windows 桌面会话中运行，并确认 Windows 的“通知和操作”设置没有屏蔽 SteamSwap。
 
 #### 本地桌面与服务器模式
 
@@ -213,8 +232,8 @@ set AETHERSWAP_AGREE_DISCLAIMER=1
 
 ```bash
 # 1. 克隆项目并进入目录
-git clone https://gitee.com/vexed-wilson/AetherSwap.git
-cd AetherSwap
+git clone https://github.com/Despr0A/SteamSwap.git
+cd SteamSwap
 
 # 2. 准备环境变量（可选，Docker Compose 会自动读取 .env）
 cp .env.example .env
@@ -359,7 +378,7 @@ python -m pip install -r requirements.txt
 
 ## ⚙️ 工作原理
 
-AetherSwap 由两条后台 Pipeline 协同驱动：
+SteamSwap 由两条后台 Pipeline 协同驱动：
 
 ### 采买 Pipeline
 
@@ -422,7 +441,7 @@ SteamDT 行情接口 → 折扣筛选 → 稳定性分析(CV/R²) → 防呆校�
 ## 🏗 项目结构
 
 ```
-AetherSwap/
+SteamSwap/
 ├── app/                   # FastAPI 后端核心
 │   ├── api.py             # FastAPI/ASGI 应用实例与路由注册
 │   ├── main.py            # 桌面 / 服务器运行启动器
@@ -508,7 +527,7 @@ python -m pip install -r requirements.txt
 <details>
 <summary><b>Q：如何部署到 Linux 服务器？</b></summary>
 
-AetherSwap 的 FastAPI 架构完整支持无头 Linux 环境。直接运行：
+SteamSwap 的 FastAPI 架构完整支持无头 Linux 环境。直接运行：
 
 ```bash
 pip install -r requirements-server.txt
@@ -563,7 +582,7 @@ python -m uvicorn app.api:app --host 0.0.0.0 --port 28472
 如果你在**余额倒卖方面有丰富经验**，欢迎加入测试、反馈选品策略或参数调优建议——你的实战经验将直接帮助改进算法。
 
 > 📱 **微信**：`13738064065`  
-> 加好友时请备注 **AetherSwap** 以及**来访目的**，
+> 加好友时请备注 **SteamSwap** 以及**来访目的**，
 
 ---
 
@@ -610,7 +629,7 @@ python -m uvicorn app.api:app --host 0.0.0.0 --port 28472
 
 <div align="center">
 
-如果 AetherSwap 对你有帮助，欢迎点个 **⭐ Star** 支持一下！
+如果 SteamSwap 对你有帮助，欢迎点个 **⭐ Star** 支持一下！
 
 Made with ❤️ for the Steam community
 
