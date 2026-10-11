@@ -1,8 +1,4 @@
 
-let inventoryRefreshSeconds = 600;
-let inventoryTimer = null;
-let currentPriceRefreshMinutes = 10;
-let currentPriceTimer = null;
 function detectBrowserTimezone() {
   let name = "";
   try {
@@ -32,7 +28,6 @@ async function loadConfig() {
   const b = c.buff || {};
   const p = c.pipeline || {};
   const s = c.stability || {};
-  const inv = c.inventory || {};
   const sys = c.system || {};
   const gGames = el("cfg-games");
   if (gGames) gGames.value = i.type || i.games || "";
@@ -80,8 +75,6 @@ async function loadConfig() {
   if (gUseVwap) gUseVwap.checked = s.use_vwap !== false;
   const gRetrySec = el("cfg-retry_interval_seconds");
   if (gRetrySec) gRetrySec.value = p.retry_interval_seconds ?? "";
-  const referenceObservationOnly = el("cfg-reference-price-observation-only");
-  if (referenceObservationOnly) referenceObservationOnly.checked = p.reference_price_observation_only === true;
   const verboseCb = el("cfg-verbose-debug");
   if (verboseCb) verboseCb.checked = !!p.verbose_debug;
   const steamListingsDebugCb = el("cfg-steam-listings-debug");
@@ -100,8 +93,6 @@ async function loadConfig() {
   if (maxListingsPerItem) maxListingsPerItem.value = p.max_listings_per_item ?? "";
   const listingDelayEl = el("cfg-listing_delay_seconds");
   if (listingDelayEl) listingDelayEl.value = p.listing_delay_seconds ?? "";
-  const resellRatioEl = el("cfg-resell_ratio");
-  if (resellRatioEl) resellRatioEl.value = p.resell_ratio ?? "";
   const safeHardCap = el("cfg-safe_purchase_hard_qty_cap");
   if (safeHardCap) safeHardCap.value = p.safe_purchase_hard_qty_cap ?? "";
   const safeLiqRatio = el("cfg-safe_purchase_liquidity_ratio");
@@ -116,9 +107,6 @@ async function loadConfig() {
   if (sellPressureN) sellPressureN.value = p.sell_pressure_orders_n ?? "";
   const sellPressureThresh = el("cfg-sell_pressure_threshold");
   if (sellPressureThresh) sellPressureThresh.value = p.sell_pressure_threshold ?? "";
-  const currentPriceRefreshEl = el("cfg-current-price-refresh-minutes");
-  if (currentPriceRefreshEl) currentPriceRefreshEl.value = p.current_price_refresh_minutes ?? "";
-  currentPriceRefreshMinutes = parseInt(p.current_price_refresh_minutes, 10) || currentPriceRefreshMinutes || 10;
   const gStartTimeLimitEnabled = el("cfg-start-time-limit-enabled");
   if (gStartTimeLimitEnabled) gStartTimeLimitEnabled.checked = !!p.start_time_limit_enabled;
   const gStartTimeHour = el("cfg-start-time-hour");
@@ -129,18 +117,9 @@ async function loadConfig() {
   if (timezoneDisplay) {
     timezoneDisplay.textContent = `时间判断采用当前浏览器时区：${browserTimezoneLabel()}`;
   }
-  const invInput = el("cfg-inv-refresh");
-  if (invInput) invInput.value = inv.refresh_seconds ?? "";
-  inventoryRefreshSeconds = parseInt(inv.refresh_seconds, 10) || inventoryRefreshSeconds || 600;
   const n = c.notify || {};
   const gPush = el("cfg-pushplus_token");
   if (gPush) gPush.value = n.pushplus_token ?? "";
-  const gHoldingsReport = el("cfg-holdings_report_interval_hours");
-  if (gHoldingsReport) gHoldingsReport.value = n.holdings_report_interval_hours ?? "";
-  const gHoldingsThreshold = el("cfg-holdings_report_change_threshold_pct");
-  if (gHoldingsThreshold) gHoldingsThreshold.value = n.holdings_report_change_threshold_pct ?? "";
-  const gHoldingsDropEnabled = el("cfg-holdings-drop-enabled");
-  if (gHoldingsDropEnabled) gHoldingsDropEnabled.checked = n.holdings_report_drop_enabled !== false;
   const gEmailUser = el("cfg-email_user");
   if (gEmailUser) gEmailUser.value = n.email_user ?? "";
   const gEmailPass = el("cfg-email_pass");
@@ -220,7 +199,6 @@ function formToConfig() {
       iflow_top_n: el("cfg-iflow_top_n") ? parseInt(el("cfg-iflow_top_n").value, 10) || undefined : undefined,
       sell_price_ratio: el("cfg-sell_ratio") ? parseFloat(el("cfg-sell_ratio").value) || undefined : undefined,
       retry_interval_seconds: el("cfg-retry_interval_seconds") ? parseInt(el("cfg-retry_interval_seconds").value, 10) || undefined : undefined,
-      reference_price_observation_only: !!el("cfg-reference-price-observation-only")?.checked,
       exclude_keywords: el("cfg-exclude_keywords") ? Array.from(
         new Set(
           (el("cfg-exclude_keywords").value || "")
@@ -238,7 +216,6 @@ function formToConfig() {
       sell_trend_days: el("cfg-sell_trend_days") ? parseInt(el("cfg-sell_trend_days").value, 10) || undefined : undefined,
       max_listings_per_item: el("cfg-max_listings_per_item") ? parseInt(el("cfg-max_listings_per_item").value, 10) || undefined : undefined,
       listing_delay_seconds: el("cfg-listing_delay_seconds") ? parseInt(el("cfg-listing_delay_seconds").value, 10) || undefined : undefined,
-      resell_ratio: el("cfg-resell_ratio") ? parseFloat(el("cfg-resell_ratio").value) || undefined : undefined,
       safe_purchase_hard_qty_cap: el("cfg-safe_purchase_hard_qty_cap") ? parseInt(el("cfg-safe_purchase_hard_qty_cap").value, 10) : undefined,
       safe_purchase_liquidity_ratio: el("cfg-safe_purchase_liquidity_ratio") ? parseFloat(el("cfg-safe_purchase_liquidity_ratio").value) : undefined,
       safe_purchase_low_price_threshold: el("cfg-safe_purchase_low_price_threshold") ? parseFloat(el("cfg-safe_purchase_low_price_threshold").value) : undefined,
@@ -246,7 +223,6 @@ function formToConfig() {
       safe_purchase_low_price_hard_cap: el("cfg-safe_purchase_low_price_hard_cap") ? parseInt(el("cfg-safe_purchase_low_price_hard_cap").value, 10) : undefined,
       sell_pressure_orders_n: el("cfg-sell_pressure_orders_n") ? parseInt(el("cfg-sell_pressure_orders_n").value, 10) : undefined,
       sell_pressure_threshold: el("cfg-sell_pressure_threshold") ? parseFloat(el("cfg-sell_pressure_threshold").value) : undefined,
-      current_price_refresh_minutes: el("cfg-current-price-refresh-minutes") ? parseInt(el("cfg-current-price-refresh-minutes").value, 10) || undefined : undefined,
       start_time_limit_enabled: !!el("cfg-start-time-limit-enabled")?.checked,
       start_time_hour: el("cfg-start-time-hour") ? (parseInt(el("cfg-start-time-hour").value, 10) >= 0 && parseInt(el("cfg-start-time-hour").value, 10) <= 23 ? parseInt(el("cfg-start-time-hour").value, 10) : undefined) : undefined,
       end_time_hour: el("cfg-end-time-hour") ? (parseInt(el("cfg-end-time-hour").value, 10) >= 0 && parseInt(el("cfg-end-time-hour").value, 10) <= 23 ? parseInt(el("cfg-end-time-hour").value, 10) : undefined) : undefined,
@@ -264,14 +240,8 @@ function formToConfig() {
       price_percentile_ceil_rising: el("cfg-price_percentile_ceil_rising") ? parseFloat(el("cfg-price_percentile_ceil_rising").value) : undefined,
       use_vwap: el("cfg-use_vwap") ? el("cfg-use_vwap").checked : undefined,
     },
-    inventory: {
-      refresh_seconds: el("cfg-inv-refresh") ? parseInt(el("cfg-inv-refresh").value, 10) || undefined : undefined,
-    },
     notify: {
       pushplus_token: el("cfg-pushplus_token") ? el("cfg-pushplus_token").value.trim() : undefined,
-      holdings_report_interval_hours: el("cfg-holdings_report_interval_hours") ? parseInt(el("cfg-holdings_report_interval_hours").value, 10) : undefined,
-      holdings_report_change_threshold_pct: el("cfg-holdings_report_change_threshold_pct") ? parseFloat(el("cfg-holdings_report_change_threshold_pct").value) : undefined,
-      holdings_report_drop_enabled: el("cfg-holdings-drop-enabled") ? !!el("cfg-holdings-drop-enabled").checked : undefined,
       email_user: el("cfg-email_user") ? el("cfg-email_user").value.trim() : undefined,
       email_pass: el("cfg-email_pass") ? el("cfg-email_pass").value.trim() : undefined,
       imap_server: el("cfg-imap_server") ? el("cfg-imap_server").value.trim() : undefined,
@@ -323,13 +293,14 @@ async function saveConfigFromForm() {
   });
   if (!saved.ok) throw new Error(saved.error || "配置写入失败");
   await loadConfig();
-  setupInventoryAutoRefresh();
 }
-async function startPipeline() {
+async function startPipeline(observationOnly = false) {
   try {
     await saveConfigFromForm();
     const d = await fetchJson(API + "/config");
-    const payload = { config: d.config || {} };
+    const config = d.config || {};
+    config.pipeline = { ...(config.pipeline || {}), reference_price_observation_only: observationOnly };
+    const payload = { config };
     let result = await fetchJson(API + "/pipeline/start", {
       method: "POST",
       body: JSON.stringify(payload),
@@ -377,7 +348,7 @@ async function startPipeline() {
     } else if (result && result.ok === false) {
       toast("启动失败", result.error || "请检查 BUFF 状态");
     } else {
-      toast("启动请求已发送");
+      toast(observationOnly ? "仅观测启动请求已发送" : "启动请求已发送");
     }
     refreshStatus();
   } catch (e) {
@@ -412,7 +383,7 @@ async function exportConfig() {
     document.body.appendChild(a);
     a.click();
     a.remove();
-    toast("已导出完整数据", "配置、账号、交易、凭证、操作记录");
+    toast("已导出完整数据", "配置、账号、已支付饰品、凭证");
   } catch (e) {
     toast("导出失败", e.message || "请稍后再试");
   }
@@ -435,7 +406,7 @@ async function importConfigFromFile(file) {
       const out = el("log-output");
       if (out) out.dataset.lastIndex = "0";
       await refreshLog();
-      toast("已恢复完整数据", "配置、账号、交易、凭证、操作记录");
+      toast("已恢复完整数据", "配置、账号、已支付饰品、凭证");
     } else {
       await fetchJson(API + "/config", { method: "POST", body: JSON.stringify({ config: json }) });
       await loadConfig();
@@ -448,28 +419,6 @@ async function importConfigFromFile(file) {
     if (input) input.value = "";
   }
 }
-function setupInventoryAutoRefresh() {
-  if (inventoryTimer) {
-    clearInterval(inventoryTimer);
-    inventoryTimer = null;
-  }
-  if (currentPriceTimer) {
-    clearInterval(currentPriceTimer);
-    currentPriceTimer = null;
-  }
-  if (inventoryRefreshSeconds && inventoryRefreshSeconds > 0) {
-    inventoryTimer = setInterval(() => {
-      refreshInventory(true);
-    }, inventoryRefreshSeconds * 1000);
-  }
-  if (currentPriceRefreshMinutes && currentPriceRefreshMinutes > 0) {
-    refreshMarketPrices();
-    currentPriceTimer = setInterval(() => {
-      refreshMarketPrices();
-    }, currentPriceRefreshMinutes * 60 * 1000);
-  }
-}
-
 // ---- 配置完整性检查 & 新手引导向导 ----
 const WIZARD_SKIP_KEY = "aetherswap_onboard_skip";
 

@@ -14,7 +14,7 @@ from app.inventory_cs2 import scan_cs2_inventory
 from app.pipeline_context import PipelineContext
 from app.services.account_region import refresh_account_region_currency
 from app.strategy_engine import apply_strategy_to_config, evaluate_strategy_runtime_modules
-from app.state import get_state, append_sale
+from app.state import get_state
 from app.steam_confirm import auto_confirm_once
 from app.steam_listings import fetch_my_listings
 from steam.market import list_item, parse_sell_response
@@ -86,8 +86,7 @@ def _load_rate_map() -> dict:
 
 
 def _record_listing_success(ctx, aid: str, name: str, list_price: float, listing_delay: float) -> None:
-    """Append sale record, mark purchase as listed, and sleep the listing delay."""
-    append_sale({"name": name, "goods_id": 0, "price": list_price, "at": time.time(), "assetid": aid or ""})
+    """Mark the purchase as listed and sleep the listing delay."""
     if aid:
         purchases = ctx.state.get_purchases()
         for i, p in enumerate(purchases):

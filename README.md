@@ -33,101 +33,7 @@
 
 </div>
 
-> [!NOTE]
-> **💡 项目定位与预期管理**
-> 本项目旨在**为新手降低“倒余额”门槛，为老手节省时间**。
-> 请注意，本程序并非专门的套利工具，也不是万能的无风险低价获取余额的神器。自动购买的饰品在经历 7 天（或数天）的交易冷却期后，其市场表现大部分情况下会趋于您所期望的余额价格。但这并非绝对保证，7 天冷却期结束后的实际折扣比例**有可能上升，也有可能下降**。
-> **如果您的目的是在短时间内快速获取余额，本工具并不适合您。**
 
----
-
-## 🔄 项目来源与改版说明
-
-**SteamSwap 是基于 [AetherSwap](https://github.com/) 的个人改版与持续维护版本。** 本项目保留原项目“Steam 饰品跨区购买、上架与余额管理”的核心思路，但已针对实际使用场景进行了较大范围的功能扩展、稳定性加固和界面重制；它不是对原项目的简单复制。
-
-### 相对原项目的主要修改
-
-- **全新的项目定位与品牌**：项目正式更名为 `SteamSwap`，代码仓库、README、界面展示和运行提示均以新名称为准。
-- **策略中心**：新增可视化策略工作区，支持系统策略、自定义策略、模块化参数、策略校验、模拟运行，以及买入/卖出策略的独立切换。
-- **交易流程重构**：完善从选品、价格参考、BUFF 下单、支付确认、收货、Steam 上架到成交记录的完整流水线，并增加订单状态持久化、超时处理和错误修复工具。
-- **Steam 账号与安全能力**：加入内嵌登录、Cookie 备用流程、Steam Guard 令牌生成与自动确认、账号区域同步，以及库存、挂单和历史数据管理。
-- **代理与请求保护**：新增代理池管理，支持自定义代理和动态代理轮换，并通过请求频率限制、重试和风控保护降低异常请求风险。
-- **通知与无人值守**：支持 Windows 通知中心、邮件/IMAP 付款确认和 PushPlus 推送，使桌面运行与服务器运行都能获得关键状态提醒。
-- **部署方式扩展**：支持 Windows 桌面、Linux/无桌面服务器和 Docker 部署，并提供自动运行模式判断、监听地址/端口配置和服务模式启动选项。
-- **数据分析与可维护性**：新增历史行情、库存、交易和盈亏分析，使用 CV、R² 等指标辅助选品，并补充配置校验、数据库修复、日志与大量自动化测试。
-
-> 原项目的版权、许可证和基础设计仍应以其原始仓库及许可证说明为准。本改版仅代表当前仓库的独立修改与维护，不代表原作者立场。
-
----
-
-## ✨ 核心功能
-
-### 🌌 直观丝滑的全局仪表盘
-
-告别枯燥的命令行与繁杂的 JSON 配置！系统提供了一个直观、美观且响应丝滑的 Web 前端仪表盘（Dashboard）。所有运行状态、行情看板与系统设置均可在图形界面完成，零代码门槛，让你真正享受现代化的掌控体验。
-
-<div align="center">
-  <img src="./images/2.png" width="700" alt="直观丝滑的全局仪表盘展示">
-  <br>
-  <sup>▲ 图：响应式现代化 Web 仪表盘主页</sup>
-</div>
-
-### 🤖 几乎全自动的倒余额流程
-
-从 **选品 → 下单 → 入库 → 上架 → Steam Guard 确认**，整条链路无需人工守候。  
-桌面环境可通过内嵌浏览器完成登录与 Cookie 提取；无桌面 Linux 服务器会自动降级为手动 Cookie 流程。绑定移动令牌密钥（`identity_secret`）后，商品上架的二次确认也由程序自动签署。
-
-### 📐 基于数学模型的智能选品与定价
-
-不靠感觉，不靠经验，只靠数据：
-- **变异系数 (CV)**：量化价格波动幅度，自动排除价格剧烈震荡的高风险品
-- **趋势拟合度 (R²)**：拟合历史价格线性趋势，识别持续下跌或走势紊乱的冷门品  
-- **参考价计算**：根据 Steam 寄售深度与历史成交数据，动态选取最优上架价格，而非简单挂最低价
-
-### 📈 实时行情与大盘追踪
-
-系统支持实时追踪现有饰品折扣状态以及大盘市场变动，让你对市场趋势一目了然，帮助你捕捉最佳交易时机。
-
-<div align="center">
-  <img src="./images/5.png" width="700" alt="实时市场追踪分析展示">
-  <br>
-  <sup>▲ 图：实时追踪现有饰品折扣状态以及市场变动</sup>
-</div>
-
-### 📜 历史饰品数据深度分析
-
-系统提供了深度的历史饰品数据分析功能，支持复盘特定饰品在长期时间线上的价格走势、成交量变动及盈亏表现，通过回溯历史数据帮助你进一步优化选品策略。
-
-<div align="center">
-  <img src="./images/4.png" width="700" alt="历史饰品数据深度分析展示">
-  <br>
-  <sup>▲ 图：饰品历史价格跳动与成交分析</sup>
-</div>
-
-### 📊 完整的进销存数据分析
-
-每一笔交易都被永久记录：购入成本、上架价格、最终成交额、实际获得的 Steam 余额，以及综合折扣比率，全部可在数据面板以图表形式呈现。你能清楚地知道每一分钱花在哪、赚了多少。
-
-<div align="center">
-  <img src="./images/1.png" width="700" alt="进销存数据看板">
-  <br>
-  <sup>▲ 图：直观的盈亏柱状图与综合余额转化率汇总看板（图片预留位）</sup>
-</div>
-
----
-
-### 其他功能（含安全与网路保护）
-
-| 功能模块 | 描述 |
-|---|---|
-| 🛡️ **Steam 令牌获取与验证** | 内置 Steam 移动令牌（Steam Guard）生成与管理模块，支持提取令牌密钥后在控制台直接生成两步验证码（2FA），无需频繁掏出手机；集成自动确认交易功能，彻底解放双手 |
-| � **智能代理池中转** | 针对 Steam 严格的风控与区域限制，内置强大的代理池管理（支持自定义长效静止 IP 及 Webshare 自动轮换动态 IP），防止同 IP 频繁请求导致的社区封禁或红信 |
-| �🎨 **Web 控制台** | 现代化可视化界面，零代码完成所有配置，实时掌控运行状态 |
-| 🔑 **内嵌 Steam 登录** | 直接在面板输入账号，自动完成登录与 Cookie 提取，无需手动抓包 |
-| 🔔 **多渠道消息推送** | 内置 PushPlus 微信推送 + 邮件预警，重要事件即时通知 |
-| 🔒 **一键出厂重置** | 彻底清理代理、令牌、数据库、日志等全部隐私数据，安全迁移无忧 |
-
----
 
 ## 🚀 快速开始
 
@@ -151,12 +57,17 @@ cd SteamSwap
 
 **第 2 步：安装依赖**
 
+
 ```bash
+conda create -n aether python=3.10 -y
+
 # 二选一：桌面/本地运行
 pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
 
 # 二选一：无桌面 Linux 服务器（避免安装 pywebview）
 pip install -r requirements-server.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
+
+conda activate aether
 
 # 安装 Playwright 浏览器（Linux 服务器推荐 --with-deps）
 python -m playwright install chromium
@@ -169,16 +80,14 @@ python -m playwright install --with-deps chromium
 ```bash
 python run.py
 ```
+默认地址 http://127.0.0.1:28472
 
 程序默认只启动服务，不会自动弹出 Web 控制台。请访问启动日志中的本地地址完成配置；需要自动打开窗口时，设置 `AETHERSWAP_OPEN_BROWSER=1`。
-
-Windows 通知依赖随桌面依赖安装：
 
 ```powershell
 python -m pip install -r requirements.txt
 ```
 
-如果此前已经安装过依赖，请重新执行上面的命令以安装 `winrt-Windows.UI.Notifications`、`winrt-Windows.Data.Xml.Dom` 和 `pywin32`。通知发送优先使用 WinRT 通知中心 API，并使用 `SteamSwap` 作为应用标识；首次发送时会在当前用户开始菜单注册同名快捷方式，使未打包的 Python 程序也能被 Windows 通知中心识别。未安装 WinRT 投影时才尝试 PowerShell 兼容方式。
 
 无前端运行并自动启动买入流水线：
 
@@ -206,69 +115,6 @@ python run.py --no-ui --start-pipeline --observe-reference-prices
 - 无桌面 Linux 或服务进程中进入 **server 模式**，绑定 `0.0.0.0:28472`，需要用外部浏览器访问。
 - 首次非交互运行时需要先确认免责声明，可在确认已阅读后设置 `AETHERSWAP_AGREE_DISCLAIMER=1`。
 
-常用环境变量：
-
-```bash
-# 强制服务器模式
-set AETHERSWAP_MODE=server        # Windows PowerShell 可用 $env:AETHERSWAP_MODE="server"
-export AETHERSWAP_MODE=server     # Linux/macOS
-
-# 修改监听地址和端口
-set AETHERSWAP_HOST=0.0.0.0
-
-# 启动后自动打开本地窗口/浏览器（默认关闭）
-set AETHERSWAP_OPEN_BROWSER=1
-set AETHERSWAP_PORT=28472
-
-# 非交互服务启动时跳过免责声明输入
-set AETHERSWAP_AGREE_DISCLAIMER=1
-```
-
-#### Docker 部署
-
-使用 Docker 可在无桌面 Linux 服务器上一键启动，无需手动安装 Playwright 系统依赖。
-
-**前置条件**：已安装 [Docker](https://docs.docker.com/get-docker/) 与 [Docker Compose](https://docs.docker.com/compose/install/)。
-
-```bash
-# 1. 克隆项目并进入目录
-git clone https://github.com/Despr0A/SteamSwap.git
-cd SteamSwap
-
-# 2. 准备环境变量（可选，Docker Compose 会自动读取 .env）
-cp .env.example .env
-
-# 3. 确保 config/ 目录存在（首次运行会自动创建数据库等文件）
-mkdir -p config log
-
-# 4. 构建并启动
-docker compose up -d --build
-
-# 5. 查看日志
-docker compose logs -f
-```
-
-启动后通过浏览器访问 `http://<服务器IP>:28472` 打开 Web 控制台。若要修改宿主机访问端口，请在 `.env` 中设置 `AETHERSWAP_HOST_PORT`，容器内监听端口会保持为 `28472`。**强烈建议配置 Nginx 反向代理与访问鉴权，不要将管理面板直接暴露在公网。**
-
-常用命令：
-
-```bash
-docker compose ps          # 查看容器状态
-docker compose stop        # 停止服务
-docker compose down        # 停止并移除容器
-docker compose restart     # 重启服务
-```
-
-`config/` 与 `log/` 目录通过 volume 挂载持久化，容器重建后数据不会丢失。容器内以非 root 用户（uid 1000）运行；若遇到权限问题，请确保宿主机 `config/` 与 `log/` 目录对 uid 1000 可写。
-
-如果启动时报 `cannot import name 'Sentinel' from 'typing_extensions'`，说明本机 `typing_extensions` 版本过旧，请执行：
-
-```bash
-python -m pip install --upgrade typing_extensions
-# 或重新安装项目依赖
-python -m pip install -r requirements.txt
-```
-
 
 
 ### 引导流程（约 3 分钟）
@@ -280,7 +126,7 @@ python -m pip install -r requirements.txt
 1. 观察首页**「快速开始」**待办卡片，逐项完成配置
 2. 在【系统设置】中填写 `shared_secret`、`identity_secret` 及通知 Token
 3. 在【账号管理】中添加 Steam 账号，点击「验证」自动完成模拟登录
-4. 返回首页，点击**「启动任务」**，坐等余额入账 🚀
+4. 返回首页，点击**「启动任务」**，坐等余额入账
 
 ---
 

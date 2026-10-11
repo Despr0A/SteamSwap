@@ -3,6 +3,7 @@ import json
 import os
 import tempfile
 import threading
+import time
 from pathlib import Path
 from typing import Any, Optional
 _CONFIG_DIR = Path(__file__).resolve().parent
@@ -77,6 +78,7 @@ def get_steam_history_accounts() -> list[dict]:
             "account_id": str(item.get("account_id") or item.get("id") or "").strip(),
             "steam_id": str(item.get("steam_id") or "").strip(),
             "cookies": cookies,
+            **({"cookie_refreshed_at": item["cookie_refreshed_at"]} if "cookie_refreshed_at" in item else {}),
         })
     return result
 
@@ -156,16 +158,23 @@ def update_steam_credentials(
     session_id: str,
     steam_id: str = None,
     account_id: str = "",
+    *,
+    activate: bool = True,
 ) -> None:
     global _cache
     with _credentials_lock:
         data = _load().copy()
         steam = dict(data.get("steam", {}))
-        steam["cookies"] = _filter_steam_cookies(cookies)
-        steam["session_id"] = session_id
+        filtered_cookies = _filter_steam_cookies(cookies)
+        refreshed_at = time.time()
+        if activate:
+            steam["cookies"] = filtered_cookies
+            steam["session_id"] = session_id
+            steam["cookie_refreshed_at"] = refreshed_at
         sid = steam_id or _steam_id_from_cookies(cookies)
         if sid:
-            steam["steam_id"] = sid
+            if activate:
+                steam["steam_id"] = sid
             raw = steam.get("history_accounts", [])
             if isinstance(raw, dict):
                 raw = [dict(value, account_id=key) for key, value in raw.items() if isinstance(value, dict)]
@@ -174,7 +183,8 @@ def update_steam_credentials(
             history_account = {
                 "account_id": str(account_id or "").strip(),
                 "steam_id": str(sid).strip(),
-                "cookies": steam["cookies"],
+                "cookies": filtered_cookies,
+                "cookie_refreshed_at": refreshed_at,
             }
             for index, item in enumerate(raw):
                 if isinstance(item, dict) and (

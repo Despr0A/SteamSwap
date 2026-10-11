@@ -268,48 +268,17 @@
           </svg>
           <span>仪表盘</span>
         </button>
-        <button class="nav-item" data-tab="inventory">
-          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"></path>
-            <line x1="7" y1="7" x2="7.01" y2="7"></line>
-          </svg>
-          <span>库存管理</span>
-        </button>
+
         <button class="nav-item" data-tab="purchases">
           <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"></path>
             <line x1="7" y1="7" x2="7.01" y2="7"></line>
           </svg>
-          <span>持有饰品</span>
+          <span>已支付饰品</span>
         </button>
-        <button class="nav-item" data-tab="purchase-history">
-          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-            <polyline points="14 2 14 8 20 8"></polyline>
-            <line x1="16" y1="13" x2="8" y2="13"></line>
-            <line x1="16" y1="17" x2="8" y2="17"></line>
-            <polyline points="10 9 9 9 8 9"></polyline>
-          </svg>
-          <span>操作记录</span>
-        </button>
-        <button class="nav-item" data-tab="analytics">
-          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <line x1="18" y1="20" x2="18" y2="10"></line>
-            <line x1="12" y1="20" x2="12" y2="4"></line>
-            <line x1="6" y1="20" x2="6" y2="14"></line>
-          </svg>
-          <span>数据分析</span>
-        </button>
-        <button class="nav-item" data-tab="sales">
-          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-            <polyline points="14 2 14 8 20 8"></polyline>
-            <line x1="16" y1="13" x2="8" y2="13"></line>
-            <line x1="16" y1="17" x2="8" y2="17"></line>
-            <polyline points="10 9 9 9 8 9"></polyline>
-          </svg>
-          <span>上架记录</span>
-        </button>
+
+
+
         <button class="nav-item" data-tab="accounts">
           <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
@@ -403,32 +372,6 @@
       </header>
 
       <section id="panel-auto" class="panel active">
-        <div class="stats-grid">
-          <div class="stat-card primary">
-            <div class="stat-label">总出售金额</div>
-            <div class="stat-value" id="stat-total-sold">0.00</div>
-            <div class="stat-trend positive">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
-                <polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline>
-                <polyline points="17 6 23 6 23 12"></polyline>
-              </svg>
-              <span>营收</span>
-            </div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-label">已购买投入</div>
-            <div class="stat-value" id="stat-total-purchased">0.00</div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-label">总收益</div>
-            <div class="stat-value" id="stat-diff">0.00</div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-label">实际折扣比率</div>
-            <div class="stat-value" id="stat-ratio">0.0000</div>
-          </div>
-        </div>
-
         <div class="control-bar">
           <div class="control-info">
             <div class="lyric-scroll-viewport" id="step-scroll-viewport">
@@ -440,6 +383,7 @@
           <div class="control-actions">
             <button id="btn-quit" class="btn btn-danger-outline" style="margin-right: 12px;">退出程序</button>
             <button id="btn-stop" class="btn btn-secondary">停止运行</button>
+            <button id="btn-observe" class="btn btn-secondary" title="读取 Steam 历史成交和卖单数据，仅记录参考价">仅观测</button>
             <span class="btn-hover-anchor">
               <button id="btn-start" class="btn btn-primary">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
@@ -478,129 +422,23 @@
       </section>
 
       <section id="panel-purchases" class="panel">
-        <div class="panel-toolbar panel-toolbar--purchases">
-          <div class="panel-toolbar-row">
-            <span class="label">持有饰品</span>
-            <button id="btn-holdings-multiselect" class="btn btn-sm btn-secondary">多选</button>
-            <div id="holdings-batch-actions" class="hidden" style="display:none;gap:8px;align-items:center;">
-              <button id="btn-holdings-batch-sell" class="btn btn-sm btn-primary">批量出售</button>
-              <button id="btn-holdings-batch-del" class="btn btn-sm btn-danger-outline">批量删除</button>
-            </div>
-          </div>
-          <div id="purchases-summary" class="purchases-summary"></div>
-        </div>
-        <div class="add-purchase-bar">
-          <span class="label">手动添加购入</span>
-          <input type="text" id="add-purchase-name" placeholder="物品名称" />
-          <input type="text" id="add-purchase-steam-link" placeholder="或 Steam 市场链接（优先取英文名）"
-            title="粘贴 steamcommunity.com/market/listings/730/... 将用链接中的英文名作为记录名称" />
-          <input type="number" id="add-purchase-price" step="0.01" min="0.01" placeholder="价格" />
-          <input type="number" id="add-purchase-quantity" value="1" min="1" placeholder="数量" title="批量添加条数" />
-          <button id="btn-add-purchase" class="btn btn-primary">添加</button>
-        </div>
-        <div class="table-container">
-          <table id="transactions-table-purchases">
-            <thead>
-              <tr>
-                <th id="holding-select-th" class="hidden" style="width:52px;min-width:52px"></th>
-                <th>时间</th>
-                <th>物品/说明</th>
-                <th>assetid</th>
-                <th>购入价</th>
-                <th>购入市场价</th>
-                <th>现市场价</th>
-                <th>税后价格</th>
-                <th>实际折扣比率</th>
-                <th>变现收益</th>
-                <th>自用收益</th>
-                <th>市场变动</th>
-                <th>操作</th>
-              </tr>
-            </thead>
-            <tbody></tbody>
-          </table>
-        </div>
-      </section>
-
-      <section id="panel-purchase-history" class="panel">
-        <div class="panel-toolbar panel-toolbar--purchase-history">
-          <div class="panel-toolbar-row">
-            <span class="label">操作记录</span>
-            <button id="btn-history-multiselect" class="btn btn-sm btn-secondary">多选</button>
-            <div id="history-batch-actions" class="hidden" style="display:none;gap:8px;align-items:center;">
-              <button id="btn-history-batch-del" class="btn btn-sm btn-danger-outline">批量删除</button>
-            </div>
-          </div>
-          <div id="purchase-history-summary" class="purchases-summary"></div>
-        </div>
-        <div class="table-container">
-          <table id="transactions-table-purchase-history">
-            <thead>
-              <tr>
-                <th id="history-select-th" class="hidden" style="width:52px;min-width:52px"></th>
-                <th>时间</th>
-                <th>物品说明</th>
-                <th>assetid</th>
-                <th>购入价</th>
-                <th>购入市场价</th>
-                <th>出售状态</th>
-                <th>出售价格</th>
-                <th>实际折扣比率</th>
-                <th>变现收益</th>
-                <th>自用收益</th>
-                <th>价格偏离度</th>
-                <th>操作</th>
-              </tr>
-            </thead>
-            <tbody></tbody>
-          </table>
-        </div>
-      </section>
-
-      <section id="panel-sales" class="panel">
         <div class="panel-toolbar">
-          <span class="label">上架记录</span>
-          <button id="btn-refresh-sales" class="btn btn-sm btn-secondary">刷新</button>
+          <span class="label">已支付饰品</span>
+          <button id="btn-refresh-paid" class="btn btn-sm btn-secondary">刷新</button>
         </div>
         <div class="table-container">
-          <table id="transactions-table-sales">
-            <thead>
-              <tr>
-                <th>时间</th>
-                <th>物品/说明</th>
-                <th>assetid</th>
-                <th>金额</th>
-                <th>操作</th>
-              </tr>
-            </thead>
+          <table id="paid-purchases-table">
+            <thead><tr><th>饰品</th><th>购入价</th><th>购入市场价</th><th>购入时间</th><th>购入时比例</th></tr></thead>
             <tbody></tbody>
           </table>
         </div>
       </section>
 
-      <section id="panel-analytics" class="panel">
-        <div class="panel-toolbar">
-          <span class="label">饰品交易统计</span>
-        </div>
-        <div class="table-container">
-          <table id="analytics-table">
-            <thead>
-              <tr>
-                <th>饰品名称</th>
-                <th>数量</th>
-                <th>购入均价</th>
-                <th>购入市场均价</th>
-                <th>总出售额</th>
-                <th>出售均价</th>
-                <th>实际折扣比例均值</th>
-                <th>总变现收益</th>
-                <th>价格偏离度均值</th>
-              </tr>
-            </thead>
-            <tbody></tbody>
-          </table>
-        </div>
-      </section>
+
+
+
+
+
 
       <section id="panel-accounts" class="panel">
         <div class="panel-toolbar panel-toolbar--accounts">
@@ -817,19 +655,6 @@
           </div>
 
           <div class="settings-group">
-            <h2>交易模式</h2>
-            <div class="form-grid">
-              <div class="field field--switch">
-                <label class="checkbox-wrapper" title="只拉取并记录候选饰品的 Steam 参考价，不会锁定或创建任何 BUFF 订单。">
-                  <input type="checkbox" id="cfg-reference-price-observation-only" />
-                  <span>仅检测价格，不进行交易</span>
-                </label>
-                <span class="field-hint">用于初始化新饰品的参考价；关闭后才会按策略正常交易。</span>
-              </div>
-            </div>
-          </div>
-
-          <div class="settings-group">
             <h2>启动时间限制</h2>
             <div class="form-grid">
               <div class="field field--switch">
@@ -895,18 +720,10 @@
                   <input type="password" id="cfg-pushplus_token" placeholder="* 必填 — 微信推送 Token"
                     autocomplete="new-password" />
                 </div>
-                <div class="field">
-                  <label for="cfg-holdings_report_interval_hours">定时回报间隔（小时）</label>
-                  <input type="number" id="cfg-holdings_report_interval_hours" min="0" max="720" placeholder="0"
-                    title="每隔 N 小时定时推送一次持有饰品回报；0 = 关闭定时回报" />
-                </div>
+
               </div>
               <div class="field-row">
-                <div class="field">
-                  <label for="cfg-holdings_report_change_threshold_pct">紧急跌幅阈值（%）</label>
-                  <input type="number" id="cfg-holdings_report_change_threshold_pct" min="1" max="100" step="1"
-                    placeholder="20" title="现市价跌幅（相对上次记录）>= 此值时自动发送紧急回报；默认 20%" />
-                </div>
+
               </div>
               <div class="field-row">
                 <div class="field">
@@ -959,16 +776,6 @@
                     title="暂无符合条件或本轮回无稳定品时，等待多少秒后重新拉取判定" />
                 </div>
                 <div class="field">
-                  <label>库存自动刷新 (秒)</label>
-                  <input type="number" id="cfg-inv-refresh" min="600" placeholder="600"
-                    title="库存自动刷新间隔，默认10分钟；过短会频繁触发出售阶段和Steam在售列表获取" />
-                </div>
-                <div class="field">
-                  <label>操作记录现市场价刷新间隔 (分钟)</label>
-                  <input type="number" id="cfg-current-price-refresh-minutes" min="1" placeholder="10"
-                    title="仅在此间隔过后再次打开/刷新操作记录时才请求 Steam 现价" />
-                </div>
-                <div class="field">
                   <label for="cfg-exchange-refresh-hours">汇率刷新间隔(小时)</label>
                   <input type="number" id="cfg-exchange-refresh-hours" min="0" step="0.5" placeholder="0"
                     title="每隔多少小时自动查询一次汇率，0 表示关闭" />
@@ -1006,46 +813,12 @@
               <input id="cfg-import-file" type="file" accept=".json" hidden />
             </label>
             <button id="btn-data-init" class="btn btn-danger" type="button">恢复出厂设置</button>
-            <button id="btn-sync-sold" class="btn btn-secondary" type="button">同步售出/持有</button>
-            <button id="btn-repair-error" class="btn btn-danger-outline" type="button">紧急修复</button>
             <button id="btn-save-config" class="btn btn-primary">保存所有设置</button>
           </div>
         </div>
       </section>
 
-      <section id="panel-inventory" class="panel">
-        <div class="panel-toolbar">
-          <div class="toolbar-stat">
-            <span class="label">库存总数</span>
-            <span class="value" id="inv-count">0</span>
-          </div>
-          <div class="toolbar-stat">
-            <span class="label">库存价值</span>
-            <span class="value mono" id="inv-total-value">0.00</span>
-          </div>
-          <div class="toolbar-stat">
-            <span class="label">税后价值</span>
-            <span class="value mono" id="inv-tax-value">0.00</span>
-          </div>
-          <button id="btn-refresh-inventory" class="btn btn-sm btn-secondary">立即刷新</button>
-        </div>
-        <div class="table-container">
-          <table id="inv-table">
-            <thead>
-              <tr>
-                <th>物品名称</th>
-                <th>链接</th>
-                <th>可出售</th>
-                <th>可交易</th>
-                <th>解禁时间</th>
-                <th>最低价</th>
-                <th>状态说明</th>
-              </tr>
-            </thead>
-            <tbody></tbody>
-          </table>
-        </div>
-      </section>
+
 
       <section id="panel-steam-guard" class="panel">
         <div class="steam-token-page">
@@ -1379,61 +1152,9 @@
     </svg>
   </button>
 
-  <div id="edit-tx-overlay" class="relogin-overlay hidden">
-    <div class="relogin-modal">
-      <h3>编辑记录</h3>
-      <div class="form-grid" style="margin:12px 0">
-        <div class="field">
-          <label>物品名称</label>
-          <input type="text" id="edit-tx-name" />
-        </div>
-        <div class="field">
-          <label>金额</label>
-          <input type="number" id="edit-tx-price" step="0.01" min="0.01" />
-        </div>
-        <div class="field" id="edit-tx-market-price-wrap">
-          <label>购入市场价（可选）</label>
-          <input type="number" id="edit-tx-market-price" step="0.01" min="0" placeholder="购买时 Steam 最低价" />
-        </div>
-        <div class="field" style="display:none">
-          <label>Buff goods_id（可选）</label>
-          <input type="number" id="edit-tx-goods-id" min="0" />
-        </div>
-        <div class="field" id="edit-tx-assetid-wrap">
-          <label>assetid（可选）</label>
-          <input type="text" id="edit-tx-assetid" placeholder="Steam 资产 ID" />
-        </div>
-        <div class="field" id="edit-tx-listing-wrap">
-          <label>状态</label>
-          <select id="edit-tx-listing">
-            <option value="0">持有中</option>
-            <option value="1">出售中</option>
-            <option value="2">待收货</option>
-          </select>
-        </div>
-      </div>
-      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px">
-        <button type="button" id="edit-tx-cancel" class="btn btn-secondary">取消</button>
-        <button type="button" id="edit-tx-save" class="btn btn-primary">保存</button>
-      </div>
-    </div>
-  </div>
 
-  <div id="sell-tx-overlay" class="relogin-overlay hidden">
-    <div class="relogin-modal">
-      <h3>售出</h3>
-      <p class="muted small" id="sell-tx-item-name"></p>
-      <div class="field" style="margin:12px 0">
-        <label for="sell-tx-price">实际到手金额（税后）</label>
-        <input type="number" id="sell-tx-price" step="0.01" min="0.01" placeholder="填写 Steam 实际到账金额" />
-        <span class="field-hint">记录时会换算为税前出售价，与自动售出记录保持一致。</span>
-      </div>
-      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px">
-        <button type="button" id="sell-tx-cancel" class="btn btn-secondary">取消</button>
-        <button type="button" id="sell-tx-confirm" class="btn btn-primary">确定售出</button>
-      </div>
-    </div>
-  </div>
+
+
 
 
   <div id="relogin-overlay" class="relogin-overlay hidden">
@@ -1454,11 +1175,11 @@
   <script src="/js/accounts.js"></script>
   <script src="/js/console.js"></script>
   <script src="/js/steamGuard.js"></script>
-  <script src="/js/transactions.js"></script>
-  <script src="/js/settings.js?v=2"></script>
+  <script src="/js/transactions.js?v=3"></script>
+  <script src="/js/settings.js?v=3"></script>
   <script src="/js/proxy.js"></script>
   <script src="/js/strategies.js"></script>
-  <script src="/js/main.js?v=4"></script>
+  <script src="/js/main.js?v=5"></script>
   <script>
     // 简单的辅助脚本，用于更新标题显示
     // 页面标题由 tabSwitch 统一处理，避免取消离开策略编辑时标题提前切换。

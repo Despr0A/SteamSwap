@@ -1,13 +1,12 @@
-"""Config, data init, export/import, holdings report routes."""
+"""Config, data init, export/import routes."""
 from typing import Optional
 
-from fastapi import APIRouter, Query, Response
+from fastapi import APIRouter, Response
 from pydantic import BaseModel
 from app.state import (
     clear_transactions,
     get_log,
     get_purchases,
-    get_sales,
     replace_log,
     replace_transactions,
 )
@@ -205,7 +204,7 @@ def api_export_full():
         "exported_at": datetime.now(timezone.utc).isoformat(),
         "app_config": load_app_config(),
         "credentials": get_all_credentials(),
-        "transactions": {"purchases": get_purchases(), "sales": get_sales()},
+        "transactions": {"purchases": get_purchases(), "sales": []},
         "accounts": {"accounts": list_accounts(), "current_id": get_current_id()},
         "log": get_log(0),
     }
@@ -227,7 +226,7 @@ def api_export_full_download():
         "exported_at": datetime.now(timezone.utc).isoformat(),
         "app_config": load_app_config(),
         "credentials": get_all_credentials(),
-        "transactions": {"purchases": get_purchases(), "sales": get_sales()},
+        "transactions": {"purchases": get_purchases(), "sales": []},
         "accounts": {"accounts": list_accounts(), "current_id": get_current_id()},
         "log": get_log(0),
     }
@@ -258,7 +257,7 @@ def api_import_full(body: ImportFullBody):
                 "credentials": get_all_credentials(),
                 "transactions": {
                     "purchases": get_purchases(),
-                    "sales": get_sales(),
+                    "sales": [],
                 },
                 "accounts": {
                     "accounts": list_accounts(),
@@ -275,7 +274,7 @@ def api_import_full(body: ImportFullBody):
                     tx = body.transactions
                     replace_transactions(
                         tx.get("purchases", []),
-                        tx.get("sales", []),
+                        [],
                     )
                 if body.accounts is not None:
                     accounts_replace_all(body.accounts)
@@ -334,8 +333,3 @@ def api_import_full(body: ImportFullBody):
         }
     except Exception as e:
         return {"ok": False, "error": str(e)}
-@router.post("/api/holdings_report/send")
-def api_holdings_report_send(force: bool = Query(False)):
-    from app.services.workers import run_holdings_report_once
-    ok = run_holdings_report_once(force=force)
-    return {"ok": ok, "message": "已发送" if ok else "未发送(无持有/无Token/无Steam凭证)"}

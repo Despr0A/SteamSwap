@@ -1,16 +1,15 @@
 """
 Background worker threads – extracted from api.py.
-Contains holdings report, receive, listing check, exchange rate,
+Contains receive, listing check, exchange rate,
 and account region sync workers.
 """
 import json
 import time
-from pathlib import Path
 from typing import Optional
+from utils.diagnostics import format_exception
 from app.state import (
     get_status,
     get_purchases,
-    get_sales,
     is_steam_background_allowed,
     log,
     set_buff_auth_expired,
@@ -24,12 +23,9 @@ from app.config_loader import (
     get_steam_credentials,
     load_app_config_validated,
 )
-from app.notify import send_pushplus, build_holdings_report_content, compute_holdings_stats
+from app.notify import send_pushplus
 from app.inventory_cs2 import scan_cs2_inventory
-from app.accounts import get_current_account, update_account
-_HOLDINGS_REPORT_LAST_FILE = Path(__file__).resolve().parent.parent.parent / "config" / "holdings_report_last.json"
-_HOLDINGS_REPORT_WAIT_INTERVAL = 60
-_HOLDINGS_REPORT_WAIT_MAX = 30 * 60
+from app.accounts import get_current_account, list_accounts, update_account
 _worker_alert_last: dict = {}  
 _WORKER_ALERT_COOLDOWN = 3600  
 def _worker_alert(worker_name: str, error: Exception) -> None:
@@ -49,119 +45,6 @@ def _worker_alert(worker_name: str, error: Exception) -> None:
         log(f"[{worker_name}] 异常告警已发送", "info", category="alert")
     except Exception:
         pass
-def _load_last_pl_pct() -> Optional[float]:
-    try:
-        if _HOLDINGS_REPORT_LAST_FILE.exists():
-            with open(_HOLDINGS_REPORT_LAST_FILE, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                v = data.get("pl_pct")
-                return float(v) if v is not None else None
-    except Exception:
-        pass
-    return None
-def _save_last_pl_pct(pl_pct: float) -> None:
-    try:
-        _HOLDINGS_REPORT_LAST_FILE.parent.mkdir(parents=True, exist_ok=True)
-        with open(_HOLDINGS_REPORT_LAST_FILE, "w", encoding="utf-8") as f:
-            json.dump({"pl_pct": pl_pct}, f)
-    except Exception:
-        pass
-def _enrich_purchases_with_current_prices(transactions: list) -> None:
-    from app.shared_market import batch_fetch_prices
-    purchases = [t for t in transactions if t.get("type") == "purchase"]
-    if not purchases:
-        return
-    names: set = set()
-    for t in purchases:
-        if t.get("sale_price") is not None:
-            continue
-        name = (t.get("name") or "").strip()
-        if name:
-            names.add(name)
-    if not names:
-        return
-    prices = batch_fetch_prices(names)
-    for t in purchases:
-        name = (t.get("name") or "").strip()
-        if name in prices and t.get("sale_price") is None:
-            t["current_market_price"] = prices[name]
-def run_holdings_report_once(force: bool = False) -> bool:
-    if not force and not is_steam_background_allowed():
-        return False
-    cfg = load_app_config_validated()
-    notify_cfg = cfg.get("notify") or {}
-    token = (notify_cfg.get("pushplus_token") or "").strip()
-    if not token:
-        return False
-    resell_ratio = float(cfg.get("pipeline", {}).get("resell_ratio", 0.85))
-    if resell_ratio <= 0:
-        resell_ratio = 0.85
-    def _build_out():
-        purchases = get_purchases()
-        out = []
-        for i, p in enumerate(purchases):
-            row = {"type": "purchase", "idx": i, "name": p.get("name", ""), "price": float(p.get("price", 0)), "market_price": p.get("market_price"), "sale_price": p.get("sale_price")}
-            if row["market_price"] is not None:
-                row["market_price"] = round(float(row["market_price"]), 2)
-            out.append(row)
-        return out, purchases
-    def _enriched_holdings(out):
-        _enrich_purchases_with_current_prices(out)
-        return [t for t in out if t.get("type") == "purchase" and (t.get("sale_price") is None or float(t.get("sale_price", 0) or 0) <= 0)]
-    out, purchases = _build_out()
-    holdings = [p for p in purchases if not (p.get("sale_price") is not None and float(p.get("sale_price", 0) or 0) > 0)]
-    if not holdings:
-        return False
-    holdings_enriched = _enriched_holdings(out)
-    if not holdings_enriched:
-        return False
-    all_have_price = all(t.get("current_market_price") is not None for t in holdings_enriched)
-    if not all_have_price:
-        return False
-    _, total_mp, _, _, pl_pct, _ = compute_holdings_stats(holdings_enriched, resell_ratio)
-    if not force:
-        drop_threshold_pct = float(notify_cfg.get("holdings_report_change_threshold_pct", 20) or 20)
-        last_pl_pct = _load_last_pl_pct()
-        if last_pl_pct is None:
-            if pl_pct is not None:
-                _save_last_pl_pct(pl_pct)
-            return False
-        if pl_pct is None:
-            return False
-        drop = last_pl_pct - pl_pct  
-        if drop < drop_threshold_pct:
-            return False
-    content = build_holdings_report_content(holdings_enriched, resell_ratio)
-    ok = send_pushplus(token, "持有饰品紧急回报" if not force else "持有饰品定时回报", content)
-    if ok and pl_pct is not None:
-        _save_last_pl_pct(pl_pct)
-    return ok
-def holdings_report_worker() -> None:
-    """定时回报 worker（holdings_report_interval_hours > 0 才运行）.
-    定时回报不受跌幅限制，每隔设定小时强制推送一次。
-    紧急回报另由 run_holdings_report_once(force=False) 负责（在有新市场价时自动触发）。
-    """
-    first_run = True
-    while True:
-        try:
-            cfg = load_app_config_validated()
-            n = cfg.get("notify") or {}
-            interval_h = int(n.get("holdings_report_interval_hours", 0) or 0)
-            if interval_h <= 0:
-                first_run = True
-                time.sleep(3600)
-                continue
-            if first_run:
-                first_run = False
-                time.sleep(60)
-            else:
-                time.sleep(interval_h * 3600)
-            while not is_steam_background_allowed():
-                time.sleep(60)
-            run_holdings_report_once(force=True)
-        except Exception:
-            time.sleep(60)
-_EXCHANGE_RATE_FILE = Path(__file__).resolve().parent.parent.parent / "config" / "exchange_rate.json"
 def _fetch_exchange_rates(base: str = "CNY", targets: Optional[list] = None) -> Optional[dict]:
     try:
         import requests
@@ -228,7 +111,7 @@ def exchange_rate_worker() -> None:
                 log("exchange_rate: 获取失败或无有效结果", "error", category="exchange_rate")
             time.sleep(max(1, int(interval_h * 3600)))
         except Exception as e:
-            log(f"exchange_rate: worker 异常 {type(e).__name__}: {e}, 5 分钟后重试", "error", category="exchange_rate")
+            log(f"exchange_rate: worker 异常 {format_exception('exchange_rate_worker', e)}, 5 分钟后重试", "error", category="exchange_rate")
             time.sleep(300)
 _BUFF_RECONCILIATION_REQUIRED_STEPS = frozenset(
     {
@@ -327,7 +210,7 @@ def receive_worker() -> None:
             log(f"receive_worker: Buff 请求策略已阻止后台查询: {e}", "warn", category="receive")
             time.sleep(60)
         except Exception as e:
-            log(f"receive_worker 异常 {type(e).__name__}: {e}", "error", category="receive")
+            log(f"receive_worker 异常 {format_exception('receive_worker', e)}", "error", category="receive")
             _worker_alert("receive_worker", e)
             time.sleep(60)
 def listing_check_worker() -> None:
@@ -397,7 +280,7 @@ def listing_check_worker() -> None:
                 else:
                     log(f"[listing_check] 售出后刷新库存失败，暂不补挂: {inv_err}", "warn", category="steam")
         except Exception as e:
-            log(f"listing_check_worker 异常 {type(e).__name__}: {e}", "error", category="steam")
+            log(f"listing_check_worker 异常 {format_exception('listing_check_worker', e)}", "error", category="steam")
             _worker_alert("listing_check_worker", e)
             time.sleep(60)
 def _currency_code_from_price_text(text: str) -> str:
@@ -525,7 +408,7 @@ def sync_account_region_worker() -> None:
             category="account",
         )
     except Exception as e:
-        log(f"account_region: 同步异常 {str(e)[:120]}", "error", category="account")
+        log(f"account_region: 同步异常 {format_exception('account_region', e)}", "error", category="account")
         return
 def _session_keepalive_enabled(cfg: dict) -> bool:
     return bool((cfg.get("system") or {}).get("buff_session_keepalive_enabled", False))
@@ -547,8 +430,65 @@ def _session_keepalive_is_safe() -> bool:
     )
 
 
-def session_keepalive_worker() -> None:
+def _keepalive_sessions() -> None:
     from app.services.buff_auth import try_buff_auto_relogin
+    from app.services.steam_auth import try_steam_auto_relogin
+
+    for service, relogin in (("Steam", try_steam_auto_relogin), ("Buff", try_buff_auto_relogin)):
+        log(f"keepalive: 开始本轮 {service} 后台会话保活...", "info", category="keepalive")
+        ok, _status, message = relogin()
+        log(
+            f"keepalive: {service} 保活{'成功' if ok else '未完成'}: {message}",
+            "info" if ok else "warn", category="keepalive",
+        )
+
+
+def _refresh_due_steam_cookies() -> None:
+    from app.pipeline import PipelineMaintenanceBlocked, exclusive_pipeline_maintenance
+    from app.services import steam_auth
+
+    if not _session_keepalive_is_safe():
+        return
+    for account in list_accounts():
+        if not _session_keepalive_is_safe():
+            return
+        account_id = account.get("id")
+        if not account_id:
+            continue
+        credentials = steam_auth.get_steam_credentials_for_account(account)
+        reason = steam_auth.steam_cookie_refresh_reason(credentials)
+        expected = str(account.get("steam_id") or "").strip()
+        if expected and steam_auth.cookie_metadata(credentials.get("cookies", "")).get("steam_id") != expected:
+            reason = "identity_mismatch"
+        if not reason:
+            continue
+        try:
+            with exclusive_pipeline_maintenance("steam_cookie_refresh"):
+                if not _session_keepalive_is_safe():
+                    return
+                log(f"steam_cookie_refresh: account={account_id} reason={reason} 开始重新获取 Cookie", "info", category="steam")
+                ok, status, message = steam_auth.try_steam_auto_relogin(force=True, account_id=account_id)
+                log(
+                    f"steam_cookie_refresh: account={account_id} reason={reason} status={status} {message}",
+                    "info" if ok else "warn", category="steam",
+                )
+        except PipelineMaintenanceBlocked as exc:
+            log(f"steam_cookie_refresh: 维护延后: {exc}", "debug", category="steam")
+            return
+        except Exception as exc:
+            log(format_exception("steam_cookie_refresh", exc, account=account_id, reason=reason), "error", category="steam")
+
+
+def steam_cookie_refresh_worker() -> None:
+    while True:
+        try:
+            _refresh_due_steam_cookies()
+        except Exception as exc:
+            log(format_exception("steam_cookie_refresh_worker", exc), "error", category="steam")
+        time.sleep(3600)
+
+
+def session_keepalive_worker() -> None:
 
     while True:
         try:
@@ -589,13 +529,7 @@ def session_keepalive_worker() -> None:
             # race between the wait loop and a newly started pipeline.
             if not _session_keepalive_is_safe():
                 continue
-            log("keepalive: 开始本轮 Buff 后台会话保活...", "info", category="keepalive")
-            buff_ok, _buff_status, buff_msg = try_buff_auto_relogin()
-            if not buff_ok:
-                log(f"keepalive: Buff 保活未完成: {buff_msg}", "warn", category="keepalive")
-            else:
-                log(f"keepalive: Buff 保活成功: {buff_msg}", "info", category="keepalive")
-            log("keepalive: 本轮 Buff 后台会话保活已完成", "info", category="keepalive")
+            _keepalive_sessions()
         except Exception as e:
             log(f"keepalive: worker 异常 {e}, 15 分钟后重试", "error", category="keepalive")
             time.sleep(900)

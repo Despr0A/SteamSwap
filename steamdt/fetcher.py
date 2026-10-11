@@ -4,6 +4,7 @@ import time
 from typing import Any, Dict, List, Optional
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
+from utils.diagnostics import endpoint, format_exception, redact_text
 
 from .models import SteamDTQueryParams, SteamDTRow
 from .parser import parse_response
@@ -65,8 +66,11 @@ def fetch_steamdt_data(
             with urlopen(req, timeout=timeout) as resp:
                 charset = resp.headers.get_content_charset() or "utf-8"
                 result = json.loads(resp.read().decode(charset))
-        except (HTTPError, URLError, TimeoutError, OSError) as e:
-            result = {"success": False, "error": str(e)}
+        except (HTTPError, URLError, TimeoutError, OSError, ValueError) as e:
+            raise RuntimeError(f"SteamDT 请求失败: {format_exception('steamdt.ranking', e, endpoint=endpoint(API_URL), method='POST', attempt=f'{attempt}/{attempts}', timeout_seconds=timeout, status=getattr(e, 'code', None))}") from e
+
+        if not isinstance(result, dict):
+            raise RuntimeError("SteamDT 接口返回格式异常：预期 JSON 对象")
 
         if result.get("success") or attempt == attempts:
             break
@@ -80,4 +84,7 @@ def fetch_steamdt_data(
             print(f"  attempt {attempt} errorCode={error_code}, retrying in {sleep_sec:.1f}s...")
         time.sleep(sleep_sec)
 
+    if not result.get("success"):
+        detail = result.get("message") or result.get("errorMsg") or result.get("error") or "无错误详情"
+        raise RuntimeError(f"SteamDT 接口失败: operation=steamdt.ranking endpoint={endpoint(API_URL)} stage=validate attempt={attempt}/{attempts} errorCode={result.get('errorCode')}，{redact_text(detail, 1200)}")
     return parse_response(result, target_platform=target_platform)

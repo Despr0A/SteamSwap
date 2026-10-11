@@ -95,3 +95,94 @@ def test_新配置代理在异步预热完成前可用():
         "http": "http://fresh-proxy.example:8080/",
         "https": "http://fresh-proxy.example:8080/",
     }
+
+
+def test_测速成功但Steam拒绝的代理不能通过预热(monkeypatch):
+    from utils import proxy_manager
+
+    calls = []
+    def get(url, **kwargs):
+        calls.append(url)
+        return type("Response", (), {"status_code": 200 if len(calls) == 1 else 403, "text": "1.2.3.4"})()
+
+    monkeypatch.setattr(proxy_manager.requests, "get", get)
+    result = proxy_manager.test_one_proxy({"host": "proxy", "port": 80}, "https://ip.example/", 10, check_steam=True)
+    assert result["status"] == "failed"
+    assert "403" in result["error"]
+    assert calls[1] == "https://steamcommunity.com/market/orderbook"
+
+
+def test_预热必须检查Steam(monkeypatch):
+    from utils import proxy_manager
+
+    mgr = _构造代理管理器([{"config": {"host": "proxy", "port": 80}, "score": 1}])
+    monkeypatch.setattr(proxy_manager, "_load_proxy_pool_cfg", lambda: {})
+    with patch.object(proxy_manager, "test_one_proxy", return_value={"status": "failed"}) as probe:
+        mgr.warmup()
+    assert probe.call_args.kwargs["check_steam"] is True
+    assert mgr.get_next_proxy_dict() is None
+
+
+def test_retry_excludes_used_and_failed_proxy_endpoints():
+    mgr = _构造代理管理器([
+        {"config": {"host": "used", "port": 80}, "score": 1000},
+        {"config": {"host": "fresh", "port": 80}, "score": 1},
+        {"config": {"host": "fresh", "port": 80}, "score": 1},
+        {"config": {"host": "failed", "port": 80}, "score": 0},
+    ])
+    excluded = {"http://used:80/"}
+    selected = mgr.get_next_proxy_dict(excluded=excluded)
+    assert selected["http"] == "http://fresh:80/"
+    excluded.add(selected["http"])
+    assert mgr.get_next_proxy_dict(excluded=excluded) is None
+
+
+def test_Steam返回订单簿才允许代理通过(monkeypatch):
+    from utils import proxy_manager
+
+    payloads = [
+        {"data": {"success": True, "data": {"rgCompactSellOrders": [100, 1]}}},
+        {"success": False, "data": {"rgCompactSellOrders": [100, 1]}},
+        {"data": {"message": "login required"}},
+    ]
+    for payload, expected in zip(payloads, ["ok", "failed", "failed"]):
+        response = type("Response", (), {
+            "status_code": 200, "text": "1.2.3.4", "json": lambda self: payload
+        })()
+        monkeypatch.setattr(proxy_manager.requests, "get", lambda *a, **k: response)
+        result = proxy_manager.test_one_proxy({"host": "proxy", "port": 80}, "https://ip.example/", 10, check_steam=True)
+        assert result["status"] == expected
+
+
+def test_failed_proxy_is_excluded_before_other_probes_finish(monkeypatch):
+    from utils import proxy_manager
+
+    mgr = _构造代理管理器([
+        {"config": {"host": "bad", "port": 80}, "score": 1},
+        {"config": {"host": "pending", "port": 80}, "score": 1},
+    ])
+    monkeypatch.setattr(proxy_manager, "_load_proxy_pool_cfg", lambda: {})
+    monkeypatch.setattr(proxy_manager, "test_one_proxy", lambda *args, **kwargs: {"status": "failed", "error": "407 Proxy Authentication Required"})
+    monkeypatch.setattr(proxy_manager.random, "choices", lambda configs, **kwargs: [configs[0]])
+
+    def completed(futures):
+        ordered = list(futures)
+        yield ordered[0]
+        assert mgr.get_next_proxy_dict()["http"] == "http://pending:80/"
+        yield ordered[1]
+
+    monkeypatch.setattr(proxy_manager, "as_completed", completed)
+    mgr.warmup()
+    assert mgr.get_next_proxy_dict() is None
+
+
+def test_connect_407_is_reported_as_proxy_auth_required(monkeypatch):
+    from utils import proxy_manager
+    import requests
+
+    def fail(*args, **kwargs):
+        raise requests.exceptions.ProxyError("Unable to connect to proxy") from OSError("Tunnel connection failed: 407 Proxy Authentication Required")
+
+    monkeypatch.setattr(proxy_manager.requests, "get", fail)
+    result = proxy_manager.test_one_proxy({"host": "bad", "port": 80}, "https://ip.example/", 10)
+    assert "code=PROXY_AUTH_REQUIRED" in result["error"]

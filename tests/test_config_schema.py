@@ -96,13 +96,10 @@ def test_range_price_tolerance负数被限制():
     assert result["buff"]["price_tolerance"] >= 0.0
 
 
-def test_range_inventory_refresh_seconds_too_short_is_lifted_to_ten_minutes():
-    cfg = merge(DEFAULTS, {"inventory": {"refresh_seconds": 60}})
-    with warnings.catch_warnings(record=True) as caught:
-        warnings.simplefilter("always")
-        result = _validate_ranges(cfg)
-    assert result["inventory"]["refresh_seconds"] == 600
-    assert any("inventory.refresh_seconds" in str(w.message) for w in caught)
+def test_obsolete_portfolio_settings_are_not_defaults():
+    assert "inventory" not in DEFAULTS
+    assert "current_price_refresh_minutes" not in DEFAULTS["pipeline"]
+    assert "holdings_report_drop_enabled" not in DEFAULTS["notify"]
 
 
 def test_reference_price_guard_defaults_require_two_observations():

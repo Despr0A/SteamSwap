@@ -1,5 +1,6 @@
 """Status, log, plan, and payment-related routes."""
 from pathlib import Path
+import json
 from fastapi import APIRouter
 from app.config_loader import load_app_config_validated
 from app.state import (
@@ -12,6 +13,7 @@ from app.state import (
     set_pending_payment,
 )
 from config import get_buff
+from utils.diagnostics import redact, redact_text
 from pydantic import BaseModel
 from utils.time import (
     now_in_configured_timezone,
@@ -53,7 +55,9 @@ def api_log_export():
             configured_timezone,
         ).strftime("%Y-%m-%d %H:%M:%S")
     content = "\n".join(
-        f"{fmt_time(e.get('t'))} [{e.get('level', 'info')}] {e.get('msg', '')}"
+        f"{fmt_time(e.get('t'))} [{e.get('level', 'info')}] {redact_text(e.get('msg', ''))}"
+        + (f" [category={e.get('category')}, flow_id={e.get('flow_id')}]" if e.get('category') or e.get('flow_id') else "")
+        + ("\n  diagnostic=" + json.dumps(redact(e['diagnostic']), ensure_ascii=False) if e.get('diagnostic') else "")
         for e in lines
     ) + f"\n# timezone: {timezone_label}\n"
     filename.write_text(content, encoding="utf-8")

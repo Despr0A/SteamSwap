@@ -47,11 +47,11 @@ def test_versioned_settings_assets_and_uncached_api_fetches():
         encoding="utf-8"
     )
 
-    assert '<script src="/js/settings.js?v=2"></script>' in index_html
-    assert '<script src="/js/main.js?v=4"></script>' in index_html
+    assert '<script src="/js/settings.js?v=3"></script>' in index_html
+    assert '<script src="/js/main.js?v=5"></script>' in index_html
     assert 'cache: opts.cache ?? "no-store"' in utils_js
     save_start = settings_js.index("async function saveConfigFromForm()")
-    save_end = settings_js.index("async function startPipeline()", save_start)
+    save_end = settings_js.index("async function startPipeline(", save_start)
     save_source = settings_js[save_start:save_end]
     assert save_source.index("const pending = formToConfig();") < save_source.index(
         "await fetchJson"

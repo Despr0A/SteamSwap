@@ -256,7 +256,7 @@ def test_steam_auto_relogin_does_not_reuse_cookie_from_different_account(monkeyp
     monkeypatch.setattr(
         steam_auth,
         "update_steam_creds",
-        lambda cookie, session_id, steam_id=None: calls.append(("update_creds", cookie, session_id, steam_id)),
+        lambda cookie, session_id, steam_id=None, **kwargs: calls.append(("update_creds", cookie, session_id, steam_id, kwargs)),
     )
     monkeypatch.setattr(steam_auth, "fetch_steam_profile_via_api", lambda steam_id, cookies: ("New User", "avatar"))
     monkeypatch.setattr(
@@ -270,3 +270,4 @@ def test_steam_auto_relogin_does_not_reuse_cookie_from_different_account(monkeyp
 
     assert result[0] is True
     assert any(call[0] == "update_creds" and "222%7C%7Cnew-token" in call[1] for call in calls)
+    assert next(call for call in calls if call[0] == "update_creds")[4] == {"account_id": "acc-new"}

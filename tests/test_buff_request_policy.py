@@ -490,7 +490,7 @@ def test_cooling_down_response_opens_default_rate_limit_circuit():
         FakeResponse({"code": "Cooling Down", "msg": "operation too fast"})
     )
     buyer = BuffBuyer(
-        "session=s; csrf_token=c", session=session, request_policy=no_wait_policy()
+        "session=s; csrf_token=c", session=session, request_policy=no_wait_policy(wall_clock=lambda: 1000.0)
     )
 
     with pytest.raises(BuffWriteResultUnknown):

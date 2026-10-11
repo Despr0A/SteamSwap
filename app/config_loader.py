@@ -1,6 +1,7 @@
 import copy
 import threading
 import time as _time
+from steam.cookies import cookie_metadata
 from app.config_schema import DEFAULTS, _validate_ranges, merge, validate_and_fill
 from config import (
     get_app_config_path,
@@ -43,20 +44,39 @@ def _invalidate_config_cache() -> None:
         _config_cache_ts = 0.0
         _config_cache_revision = None
 def get_steam_credentials() -> dict:
-    return get_steam()
+    from app.accounts import get_current_account
+    return get_steam_credentials_for_account(get_current_account() or {})
+
+
+def get_steam_credentials_for_account(account: dict) -> dict:
+    primary = get_steam() or {}
+    expected = str(account.get("steam_id") or "").strip()
+    if not expected:
+        return primary
+    if cookie_metadata(str(primary.get("cookies") or "")).get("steam_id") == expected:
+        return primary
+    for saved in get_steam_history_accounts():
+        metadata = cookie_metadata(saved.get("cookies", ""))
+        if metadata.get("steam_id") == expected and (
+            saved.get("account_id") == account.get("id") or saved.get("steam_id") == expected
+        ):
+            return {**saved, "session_id": metadata["session_id"]}
+    # Preserve the mismatch for ownership guards instead of guessing an account.
+    return primary
 
 def get_steam_history_credentials() -> list[dict]:
     return get_steam_history_accounts()
 def get_buff_credentials() -> dict:
     return get_buff()
-def update_steam_creds(cookies: str, session_id: str, steam_id: str = None) -> None:
+def update_steam_creds(cookies: str, session_id: str, steam_id: str = None, *, account_id: str = None) -> None:
     try:
         from app.accounts import get_current_account
 
-        account_id = str((get_current_account() or {}).get("id") or "").strip()
+        current_id = str((get_current_account() or {}).get("id") or "").strip()
     except Exception:
-        account_id = ""
-    update_steam_credentials(cookies, session_id, steam_id, account_id)
+        current_id = ""
+    target_id = current_id if account_id is None else str(account_id or "").strip()
+    update_steam_credentials(cookies, session_id, steam_id, target_id, activate=target_id == current_id)
 
 def remove_steam_history_creds(account_id: str, steam_id: str = "") -> None:
     remove_steam_history_account(account_id, steam_id)

@@ -1,7 +1,7 @@
 """Static file serving routes – must be registered LAST (catch-all)."""
 from pathlib import Path
 from typing import Optional
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
 router = APIRouter()
 WEB_DIR = Path(__file__).resolve().parent.parent.parent / "web"
@@ -34,6 +34,8 @@ def index():
     return {"app": "aetherswap", "ui": "web/index.html not found"}
 @router.get("/{path:path}")
 def static_or_index(path: str):
+    if path == "api" or path.startswith("api/"):
+        raise HTTPException(status_code=404, detail="Not found")
     f = _safe_web_file(path)
     if f:
         return _web_file_response(f)

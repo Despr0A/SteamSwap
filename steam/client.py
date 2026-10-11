@@ -1,10 +1,13 @@
 import json
 import os
 import re
-from typing import Any, Dict, List, Optional, Tuple, Union
+import time
+import uuid
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 from urllib.parse import parse_qs, quote, unquote, urlparse
 import requests
 import urllib3
+from utils.diagnostics import classify_exception, endpoint, exception_details, http_code, one_line, redact
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 CURRENCY_CNY = "CNY"
 CURRENCY_USD = "USD"
@@ -14,6 +17,10 @@ DEFAULT_HEADERS = {
     "Accept-Language": "en-US,en;q=0.9",
     "Referer": "https://steamcommunity.com/market/",
 }
+HISTORY_USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36"
+)
 _LISTING_URL_RE = re.compile(
     r"https?://steamcommunity\.com/market/listings/[^\s\])]+",
     re.I,
@@ -266,10 +273,20 @@ def fetch_history(
     cookies: Optional[Union[dict, str]] = None,
     return_currency: bool = False,
     return_status: bool = False,
+    return_metadata: bool = False,
+    return_diagnostics: bool = False,
+    log_fn: Optional[Callable[[str], None]] = None,
 ) -> Union[Optional[list], Optional[dict], tuple]:
     encoded = quote(market_hash_name, safe="")
     url = f"https://steamcommunity.com/market/pricehistory/?appid={app_id}&market_hash_name={encoded}"
-    h = {**DEFAULT_HEADERS, **(headers or {})}
+    h = {
+        **DEFAULT_HEADERS,
+        "User-Agent": HISTORY_USER_AGENT,
+        "Accept": "application/json, text/javascript, */*; q=0.01",
+        **(headers or {}),
+    }
+    if headers is None or "Accept-Language" not in headers:
+        h.pop("Accept-Language", None)
     if proxies is None:
         px = {}
         if os.environ.get("HTTP_PROXY"):
@@ -279,29 +296,85 @@ def fetch_history(
         proxies = px if px else None
     if isinstance(cookies, str):
         cookies = _parse_cookie_str(cookies)
+    started = time.monotonic()
+    status_code = None
+    auth_refresh_redirected = False
+    details = {
+        "request_id": uuid.uuid4().hex[:12],
+        "operation": "steam.pricehistory", "stage": "request",
+        "source": "steam/client.py:fetch_history", "method": "GET",
+        "endpoint": endpoint(url), "item": market_hash_name, "app_id": app_id,
+        "timeout_seconds": timeout,
+        "proxy": endpoint((proxies or {}).get("https") or (proxies or {}).get("http") or "") if proxies else "direct/system",
+    }
+
+    def result(value, status_code, auth_refresh_redirected=False):
+        details.update(status=status_code, auth_refresh_redirected=auth_refresh_redirected,
+                       elapsed_ms=round((time.monotonic() - started) * 1000))
+        if value is None and log_fn:
+            log_fn(f"[SteamHistory] {one_line(details)}")
+        if return_diagnostics:
+            return value, status_code, redact(details)
+        if return_metadata:
+            return value, status_code, auth_refresh_redirected
+        if return_status:
+            return value, status_code
+        return value
     try:
         resp = requests.get(
-            url,
-            headers=h,
-            verify=verify,
-            proxies=proxies,
-            cookies=cookies,
-            timeout=timeout,
+            url, headers=h, verify=verify, proxies=proxies, cookies=cookies, timeout=timeout
         )
         status_code = getattr(resp, "status_code", None)
+        auth_refresh_redirected = any(
+            urlparse(getattr(redirect, "headers", {}).get("Location", "")).hostname == "login.steampowered.com"
+            and urlparse(getattr(redirect, "headers", {}).get("Location", "")).path == "/jwt/refresh"
+            for redirect in getattr(resp, "history", ())
+        )
+        final_url = getattr(resp, "url", "") or url
+        final_endpoint = endpoint(final_url)
+        final_parsed = urlparse(final_url)
+        final_is_auth_refresh = (
+            final_parsed.hostname == "login.steampowered.com" and final_parsed.path == "/jwt/refresh"
+        )
+        auth_refresh_redirected = auth_refresh_redirected or final_is_auth_refresh
+        response_headers = getattr(resp, "headers", {}) or {}
+        details.update(
+            endpoint=final_endpoint,
+            content_type=response_headers.get("Content-Type", "unknown"),
+            retry_after=response_headers.get("Retry-After", "unspecified"),
+            redirects=[{
+                "status": getattr(row, "status_code", None),
+                "from": endpoint(getattr(row, "url", "") or url),
+                "to": endpoint(getattr(row, "headers", {}).get("Location", "")),
+            } for row in getattr(resp, "history", ())],
+        )
         if status_code != 200:
-            return (None, status_code) if return_status else None
+            details.update(stage="http", code=http_code(status_code, final_is_auth_refresh))
+            return result(None, status_code, auth_refresh_redirected)
+        details["stage"] = "decode"
         data = resp.json()
-        if not data or not data.get("success") or "prices" not in data:
-            return (None, status_code) if return_status else None
+        details["stage"] = "validate"
+        if not isinstance(data, dict):
+            details.update(code="INVALID_RESPONSE", detail=f"expected JSON object, got {type(data).__name__}")
+            return result(None, status_code, auth_refresh_redirected)
+        if data.get("success") not in (True, 1, "1"):
+            details.update(code="API_REJECTED", detail=data.get("error") or data.get("message") or f"success={data.get('success')}")
+            return result(None, status_code, auth_refresh_redirected)
+        if not isinstance(data.get("prices"), list):
+            details.update(code="INVALID_RESPONSE", detail=f"prices must be a list, got {type(data.get('prices')).__name__}")
+            return result(None, status_code, auth_refresh_redirected)
         history = data["prices"]
+        if not history:
+            details.update(code="EMPTY_HISTORY", detail="success=true, prices=[]; request succeeded with no trades")
+            return result(None, status_code, auth_refresh_redirected)
+        details.update(code="OK", points=len(history))
         if return_currency:
             currency_clue = data.get("price_prefix", "") + data.get("price_suffix", "")
-            currency = detect_currency(currency_clue)
-            if not currency:
-                currency = detect_currency(resp.text)
-            result = {"history": history, "currency": currency}
-            return (result, status_code) if return_status else result
-        return (history, status_code) if return_status else history
-    except Exception:
-        return (None, None) if return_status else None
+            currency = detect_currency(currency_clue) or detect_currency(resp.text)
+            currency_metadata = {"currency_symbol": currency_clue.strip()} if currency is None else {}
+            return result({"history": history, "currency": currency, **currency_metadata}, status_code, auth_refresh_redirected)
+        return result(history, status_code, auth_refresh_redirected)
+    except Exception as exc:
+        code = "INVALID_JSON" if details["stage"] == "decode" else classify_exception(exc)
+        details.update(code=code, **exception_details(exc))
+        return result(None, status_code, auth_refresh_redirected)

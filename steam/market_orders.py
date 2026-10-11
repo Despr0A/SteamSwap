@@ -10,6 +10,7 @@ from urllib.parse import urlencode
 
 from steam.client import build_listing_url
 from utils.delay import jittered_sleep
+from utils.diagnostics import endpoint, format_exception, http_code, one_line, redact_text
 from utils.proxy_manager import get_proxy_manager
 from utils.money import USD_TO_CNY_DEFAULT
 from app.database import db_get_item_nameid, db_set_item_nameid
@@ -109,20 +110,18 @@ _CS2_QUALITY_FILTER_TAGS = {
     "tag_tournament",
     "tag_unusual",
 }
-def _format_request_error(prefix: str, exc: Exception) -> str:
-    detail = str(exc).strip()
-    if len(detail) > 120:
-        detail = detail[:117] + "..."
-    return f"{prefix}: {type(exc).__name__}" + (f" - {detail}" if detail else "")
+def _format_request_error(prefix: str, exc: Exception, **context) -> str:
+    return format_exception(prefix, exc, stage="request", **context)
 
-def _http_error_reason(where: str, status_code: int) -> str:
+def _http_error_reason(where: str, status_code: int, **context) -> str:
+    diagnostic = one_line({"operation": where, "stage": "http", "status": status_code, "code": http_code(status_code), **context})
     if status_code == 429:
-        return f"{where} HTTP 429（Steam 限流）"
+        return f"{where} HTTP 429（Steam 限流） {diagnostic}"
     if status_code == 403:
-        return f"{where} HTTP 403（访问被拒绝，可能是 Cookie 失效、地区或 IP 风控）"
+        return f"{where} HTTP 403（访问被拒绝，可能是 Cookie 失效、地区或 IP 风控） {diagnostic}"
     if status_code in (500, 502, 503, 504):
-        return f"{where} HTTP {status_code}（Steam 服务端或网络网关异常）"
-    return f"{where} HTTP {status_code}"
+        return f"{where} HTTP {status_code}（Steam 服务端或网络网关异常） {diagnostic}"
+    return f"{where} HTTP {status_code} {diagnostic}"
 
 def _extract_item_nameid(html: str) -> Optional[str]:
     for pat in _ITEM_NAMEID_PATTERNS:
@@ -431,7 +430,10 @@ def _fetch_ssr_sell_orders_cny(
     url = build_listing_url(market_hash_name, app_id)
     pm = get_proxy_manager()
     last_error = ""
+    errors: List[str] = []
     for attempt in range(3):
+        if last_error:
+            errors.append(last_error)
         proxies = pm.get_proxies_for_request(failed=(attempt > 0))
         try:
             headers = {
@@ -470,12 +472,12 @@ def _fetch_ssr_sell_orders_cny(
                         parse_error = _http_error_reason("Steam 新版分组筛选页面", r2.status_code)
                 last_error = parse_error or "Steam 新版页面订单簿解析失败"
                 break
-            last_error = _http_error_reason("Steam 新版市场页面", r.status_code)
+            last_error = _http_error_reason("Steam 新版市场页面", r.status_code, endpoint=endpoint(getattr(r, "url", "") or url), attempt=attempt+1, item=market_hash_name)
         except Exception as e:
-            last_error = _format_request_error("Steam 新版市场页面请求异常", e)
+            last_error = _format_request_error("Steam 新版市场页面请求异常", e, endpoint=endpoint(url), proxy=endpoint((proxies or {}).get("https") or "") if proxies else "direct/system", attempt=attempt+1, item=market_hash_name, timeout_seconds=timeout)
         if attempt < 2:
             jittered_sleep(1.0)
-    return None, last_error or "无法打开 Steam 新版市场页面"
+    return None, "；".join(dict.fromkeys([*errors, last_error])) or "无法打开 Steam 新版市场页面"
 
 def _fetch_action_orderbook_cny(
     session,
@@ -502,7 +504,10 @@ def _fetch_action_orderbook_cny(
     }
     pm = get_proxy_manager()
     last_error = ""
+    errors: List[str] = []
     for attempt in range(3):
+        if last_error:
+            errors.append(last_error)
         proxies = pm.get_proxies_for_request(failed=(attempt > 0))
         try:
             r = session.get(
@@ -562,12 +567,12 @@ def _fetch_action_orderbook_cny(
                     return result, None
                 last_error = parse_error or "Steam 新版 orderbook 接口订单簿解析失败"
                 break
-            last_error = _http_error_reason("Steam 新版 orderbook 接口", r.status_code)
+            last_error = _http_error_reason("Steam 新版 orderbook 接口", r.status_code, endpoint=endpoint(getattr(r, "url", "") or url), attempt=attempt+1, item=market_hash_name)
         except Exception as e:
-            last_error = _format_request_error("Steam 新版 orderbook 接口请求异常", e)
+            last_error = _format_request_error("Steam 新版 orderbook 接口请求异常", e, endpoint=endpoint(url), proxy=endpoint((proxies or {}).get("https") or "") if proxies else "direct/system", attempt=attempt+1, item=market_hash_name, timeout_seconds=timeout)
         if attempt < 2:
             jittered_sleep(1.0)
-    return None, last_error or "无法访问 Steam 新版 orderbook 接口"
+    return None, "；".join(dict.fromkeys([*errors, last_error])) or "无法访问 Steam 新版 orderbook 接口"
 
 def get_item_nameid(
     session,
@@ -594,7 +599,10 @@ def get_item_nameid(
     }
     pm = get_proxy_manager()
     last_error = ""
+    errors: List[str] = []
     for attempt in range(3):
+        if last_error:
+            errors.append(last_error)
         failed = (attempt > 0)
         proxies = pm.get_proxies_for_request(failed=failed)
         try:
@@ -609,16 +617,16 @@ def get_item_nameid(
                     return (nameid, None) if return_error else nameid
                 last_error = "Steam 市场页面未包含旧版 item_nameid 字段（可能是 Steam 新版页面、物品名不正确或页面被风控）"
                 break
-            last_error = _http_error_reason("Steam 市场页面", r.status_code)
+            last_error = _http_error_reason("Steam 市场页面", r.status_code, endpoint=endpoint(getattr(r, "url", "") or url), attempt=attempt+1, item=market_hash_name)
         except Exception as e:
-            last_error = _format_request_error("Steam 市场页面请求异常", e)
-            logger.debug("获取item_nameid失败 (attempt=%d/3) proxies=%s, error=%s", attempt+1, proxies, type(e).__name__)
+            last_error = _format_request_error("Steam 市场页面请求异常", e, endpoint=endpoint(url), proxy=endpoint((proxies or {}).get("https") or "") if proxies else "direct/system", attempt=attempt+1, item=market_hash_name, timeout_seconds=timeout)
+            logger.debug("获取item_nameid失败: %s", last_error)
         
         if attempt < 2:
             jittered_sleep(1.0)
 
     if return_error:
-        return None, last_error or "无法打开 Steam 市场页面"
+        return None, "；".join(dict.fromkeys([*errors, last_error])) or "无法打开 Steam 市场页面"
     return None
 _cb_lock = threading.Lock()  
 _cb_fail_streak = 0          
@@ -682,8 +690,11 @@ def fetch_item_orders_histogram(
     pm = get_proxy_manager()
     any_success = False
     last_error = ""
+    errors: List[str] = []
     
     for attempt in range(3):
+        if last_error:
+            errors.append(last_error)
         if attempt == 0:
             effective_proxies = None                                    
         else:
@@ -717,11 +728,11 @@ def fetch_item_orders_histogram(
                     last_error = "Steam 直方图接口返回非 JSON 对象"
                 logger.debug("直方图 success非1 resp=%s", str(data)[:150])
             else:
-                last_error = _http_error_reason("Steam 直方图接口", r.status_code)
+                last_error = _http_error_reason("Steam 直方图接口", r.status_code, endpoint=endpoint(getattr(r, "url", "") or url), attempt=attempt+1)
                 logger.debug("直方图 HTTP %s (attempt=%d)", r.status_code, attempt+1)
         except Exception as e:
-            last_error = _format_request_error("Steam 直方图请求异常", e)
-            logger.debug("直方图失败 (attempt=%d/3) proxy=%s err=%s: %s", attempt+1, effective_proxies is not None, type(e).__name__, str(e)[:60])
+            last_error = _format_request_error("Steam 直方图请求异常", e, endpoint=endpoint(url), proxy=endpoint((effective_proxies or {}).get("https") or "") if effective_proxies else "direct/system", attempt=attempt+1, timeout_seconds=timeout)
+            logger.debug("直方图失败: %s", last_error)
             
         if attempt < 2:
             jittered_sleep(1.0)
@@ -733,6 +744,8 @@ def fetch_item_orders_histogram(
             _cb_fail_streak = 0
         else:
             streak_snap = None
+    if last_error:
+        errors.append(last_error)
     if streak_snap is not None:
         last_error = f"Steam 市场连续 {streak_snap} 轮全部失败，已熔断 {_CB_COOLDOWN_SEC // 60} 分钟，请确认加速器/代理是否正常"
         logger.warning(
@@ -740,6 +753,7 @@ def fetch_item_orders_histogram(
             streak_snap, _CB_COOLDOWN_SEC // 60
         )
 
+    last_error = "；".join(dict.fromkeys([*errors, last_error]))
     if stale_data is not None:
         logger.debug("Steam 直方图刷新失败，使用 7 日内旧缓存 item_nameid=%s", item_nameid)
         stale_reason = last_error or "Steam 直方图接口刷新失败"
@@ -788,17 +802,6 @@ def get_sell_orders_cny(
             entry = _sell_orders_cache.get(key)
         if entry and time.time() < entry[1]:
             return (entry[0], None) if return_error else entry[0]
-    ssr_result, ssr_error = _fetch_ssr_sell_orders_cny(
-        session,
-        market_hash_name,
-        app_id,
-        usd_to_cny_rate=usd_to_cny_rate,
-    )
-    if ssr_result:
-        if use_cache:
-            with _sell_orders_cache_lock:
-                _sell_orders_cache[key] = (ssr_result, time.time() + _SELL_ORDERS_TTL)
-        return (ssr_result, None) if return_error else ssr_result
     action_result, action_error = _fetch_action_orderbook_cny(
         session,
         market_hash_name,
@@ -810,6 +813,17 @@ def get_sell_orders_cny(
             with _sell_orders_cache_lock:
                 _sell_orders_cache[key] = (action_result, time.time() + _SELL_ORDERS_TTL)
         return (action_result, None) if return_error else action_result
+    ssr_result, ssr_error = _fetch_ssr_sell_orders_cny(
+        session,
+        market_hash_name,
+        app_id,
+        usd_to_cny_rate=usd_to_cny_rate,
+    )
+    if ssr_result:
+        if use_cache:
+            with _sell_orders_cache_lock:
+                _sell_orders_cache[key] = (ssr_result, time.time() + _SELL_ORDERS_TTL)
+        return (ssr_result, None) if return_error else ssr_result
     item_nameid = None
     nameid_error = None
     if use_cache:
@@ -825,15 +839,7 @@ def get_sell_orders_cny(
         )
     if not item_nameid:
         if return_error:
-            reason_parts: List[str] = []
-            if ssr_error:
-                reason_parts.append(ssr_error)
-            if action_error:
-                prefix = "新版 orderbook 接口也失败: " if reason_parts else ""
-                reason_parts.append(f"{prefix}{action_error}")
-            if nameid_error:
-                prefix = "旧版 item_nameid 解析也失败: " if reason_parts else ""
-                reason_parts.append(f"{prefix}{nameid_error}")
+            reason_parts = [part for part in (action_error, ssr_error, nameid_error) if part]
             reason = "；".join(reason_parts) or "无法获取 Steam 卖单数据"
             return None, reason
         return None
@@ -848,7 +854,8 @@ def get_sell_orders_cny(
         return_error=True,
     )
     if not data:
-        return (None, histogram_error or "无法获取 Steam 直方图数据") if return_error else None
+        reason = "；".join(part for part in (action_error, ssr_error, histogram_error) if part)
+        return (None, reason or "无法获取 Steam 直方图数据") if return_error else None
     raw_lowest = data.get("lowest_sell_order")
     lowest_price: Optional[float] = None
     if raw_lowest is not None:

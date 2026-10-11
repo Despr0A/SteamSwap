@@ -1,4 +1,5 @@
 import time
+from types import SimpleNamespace
 
 import pytest
 
@@ -81,7 +82,7 @@ class _FakeState:
     def set_status(self, status, step="", **_kwargs):
         self.status = (status, step)
 
-    def log(self, msg, level="info", category="", flow_id=""):
+    def log(self, msg, level="info", category="", flow_id="", diagnostic=None):
         self.logs.append((msg, level, category, flow_id))
 
     def set_pending_payment(self, value):
@@ -271,6 +272,8 @@ def test_reference_price_observation_mode_records_every_candidate(monkeypatch):
         {"name": "Second", "steam_market_name": "Second", "goods_id": 2, "min_price": 20.0},
     ]
     recorded = []
+    history_requests = []
+    steam_client = SimpleNamespace(fetch_history=lambda name, **kwargs: history_requests.append((name, kwargs)) or {"history": [["Oct 09 2026 01: +0", 100, "1"]], "currency": "CNY"})
     config = {
         "pipeline": {
             "reference_price_observation_only": True,
@@ -302,7 +305,7 @@ def test_reference_price_observation_mode_records_every_candidate(monkeypatch):
     selected, failed = steps.pick_stable_item(
         items,
         config,
-        steam_client=object(),
+        steam_client=steam_client,
         analyzer=object(),
         is_stop_requested=lambda: False,
         observation_only=True,
@@ -311,6 +314,10 @@ def test_reference_price_observation_mode_records_every_candidate(monkeypatch):
     assert selected is None
     assert failed == set()
     assert recorded == [("First", True), ("Second", True)]
+    assert history_requests == [
+        ("First", {"app_id": 730, "return_currency": True}),
+        ("Second", {"app_id": 730, "return_currency": True}),
+    ]
 
 
 def test_time_window_closing_after_first_purchase_prevents_second(monkeypatch):
@@ -1327,7 +1334,9 @@ def test_batch_id_is_durable_before_qr_fetch_can_crash():
     assert unresolved["batch_id"] == "batch-before-crash"
 
 
-def test_each_batch_bill_id_is_durable_before_the_next_finalize_post():
+def test_each_batch_bill_id_is_durable_before_the_next_finalize_post(monkeypatch):
+    monkeypatch.setattr(steps, "_fetch_smart_market_price", lambda *_args, **_kwargs: None)
+
     class BuffClient:
         _pay_method = "wechat"
 
@@ -1577,3 +1586,26 @@ def test_guarded_runner_sets_error_for_unhandled_exception(monkeypatch):
 
     assert state.status == ("error", "PIPELINE_UNEXPECTED_ERROR")
     assert state.pending is None
+
+
+@pytest.mark.parametrize("sell_data", [None, {"smart_price": 100.0, "sell_orders": []}])
+def test_observation_requests_history_even_when_sell_query_fails(monkeypatch, sell_data):
+    requests = []
+    logs = []
+    recorded = []
+    monkeypatch.setattr(steps, "set_status", lambda *args, **kwargs: None)
+    monkeypatch.setattr(steps, "jittered_sleep", lambda *args, **kwargs: None)
+    monkeypatch.setattr(steps, "_fetch_steam_sell_data", lambda *args, **kwargs: (sell_data, "unavailable"))
+    monkeypatch.setattr(steps, "_check_reference_price_stability", lambda *args, **kwargs: recorded.append(True))
+    selected, failed = steps.pick_stable_item(
+        [{"name": "Item", "goods_id": 1, "min_price": 10}],
+        {"_strategy_runtime": {"buy": {"enabled_modules": []}}},
+        SimpleNamespace(fetch_history=lambda name, **kwargs: requests.append(name)),
+        object(), lambda: False,
+        log_fn=lambda msg, level: logs.append(msg), observation_only=True,
+    )
+    assert requests == ["Item"]
+    assert selected is None
+    assert recorded == []
+    assert 1 in failed
+    assert any("历史" in message for message in logs)

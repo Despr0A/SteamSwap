@@ -231,7 +231,6 @@ def test_full_import_rejects_during_atomic_checkout_then_succeeds(monkeypatch):
     monkeypatch.setattr(config_routes, "load_app_config", lambda: {})
     monkeypatch.setattr(config_routes, "get_all_credentials", lambda: {})
     monkeypatch.setattr(config_routes, "get_purchases", lambda: [])
-    monkeypatch.setattr(config_routes, "get_sales", lambda: [])
     monkeypatch.setattr(config_routes, "list_accounts", lambda: [])
     monkeypatch.setattr(config_routes, "get_log", lambda _since=0: [])
     monkeypatch.setattr(

@@ -180,7 +180,6 @@ async function promptManualCookieLogin(type, reason = "", options = {}) {
     toast("Cookie 已保存", r.message || "");
     if (options.refreshAfterSave !== false) {
       if (isSteam) {
-        if (typeof refreshInventory === "function") await refreshInventory(true);
         await refreshAccounts();
       } else if (typeof refreshStatus === "function") {
         await refreshStatus();
@@ -235,7 +234,6 @@ async function finishRelogin(success) {
       hideReloginModal();
       toast("登录信息已更新");
       if (reloginType === "steam") {
-        await refreshInventory(true);
         refreshAccounts();
       } else {
         await refreshStatus();

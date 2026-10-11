@@ -5,7 +5,6 @@ from fastapi import FastAPI
 from app.routes.status import router as status_router
 from app.routes.transactions import router as transactions_router
 from app.routes.pipeline import router as pipeline_router
-from app.routes.inventory import router as inventory_router
 from app.routes.auth import router as auth_router
 from app.routes.accounts import router as accounts_router
 from app.routes.config import router as config_router
@@ -16,7 +15,6 @@ def register_routes(app: FastAPI) -> None:
     app.include_router(status_router)
     app.include_router(transactions_router)
     app.include_router(pipeline_router)
-    app.include_router(inventory_router)
     app.include_router(auth_router)
     app.include_router(accounts_router)
     app.include_router(config_router)

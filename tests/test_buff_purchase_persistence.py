@@ -15,6 +15,7 @@ def test_purchase_round_trip_keeps_buff_reconciliation_ids(monkeypatch, tmp_path
             "price": 10.0,
             "at": 123.0,
             "pending_receipt": True,
+            "payment_confirmed": True,
             "buff_order_id": "bill-1",
             "buff_sell_order_id": "sell-1",
             "batch_id": "batch-1",

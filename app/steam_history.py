@@ -1,4 +1,4 @@
-"""Persistent cache for Steam market order history responses.
+"""Persistent Steam price history and market order response cache.
 
 The histogram endpoint is relatively expensive and can trigger Steam rate
 limits when several inventory items are priced in one batch.  Keep the raw
@@ -9,11 +9,14 @@ transaction database remains independent from market-cache retention.
 from __future__ import annotations
 
 import json
+import math
 import sqlite3
 import threading
 import time
 from pathlib import Path
 from typing import Any, Optional
+from utils.money import apply_currency, USD_TO_CNY_DEFAULT
+from utils.time import parse_steam_history_date
 
 _CONFIG_DIR = Path(__file__).resolve().parent.parent / "config"
 _HISTORY_DB_PATH = _CONFIG_DIR / "steam_market_history.db"
@@ -33,6 +36,31 @@ def _get_connection() -> sqlite3.Connection:
                 cache_key TEXT PRIMARY KEY,
                 data_json TEXT NOT NULL,
                 fetched_at REAL NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS steam_price_history (
+                app_id INTEGER NOT NULL,
+                market_hash_name TEXT NOT NULL,
+                traded_at INTEGER NOT NULL,
+                point_json TEXT NOT NULL,
+                source_currency TEXT,
+                price_cny REAL,
+                updated_at REAL NOT NULL,
+                PRIMARY KEY (app_id, market_hash_name, traded_at)
+            )
+            """
+        )
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS steam_price_history_fetch (
+                app_id INTEGER NOT NULL,
+                market_hash_name TEXT NOT NULL,
+                response_json TEXT NOT NULL,
+                fetched_at REAL NOT NULL,
+                PRIMARY KEY (app_id, market_hash_name)
             )
             """
         )
@@ -101,6 +129,124 @@ def get_cached_item_orders_histogram(
     finally:
         if conn is not None:
             conn.close()
+
+
+def merge_price_history(
+    market_hash_name: str,
+    data: dict[str, Any],
+    *,
+    app_id: int = 730,
+    fetched_at: Optional[float] = None,
+    usd_to_cny_rate: float = USD_TO_CNY_DEFAULT,
+) -> dict[str, int]:
+    """Merge shared market points; keep raw values alongside their CNY prices."""
+    name = str(market_hash_name).strip()
+    history = data.get("history")
+    if not name or not isinstance(history, list):
+        raise ValueError("Invalid Steam price history response")
+    observed_at = time.time() if fetched_at is None else float(fetched_at)
+    currency = str(data.get("currency") or "").strip().upper() or None
+    serialized = json.dumps(data, ensure_ascii=False, allow_nan=False)
+    points = {}
+    for point in history:
+        if not isinstance(point, (list, tuple)) or len(point) < 3:
+            continue
+        date = parse_steam_history_date(str(point[0]))
+        try:
+            price = float(point[1])
+            volume = float(point[2])
+        except (TypeError, ValueError):
+            continue
+        if date is None or not math.isfinite(price) or not math.isfinite(volume) or price < 0 or volume < 0:
+            continue
+        converted, code = apply_currency([price], currency, usd_to_cny_rate)
+        price_cny = converted[0] if currency and code == "CNY" else None
+        if price_cny is not None and not math.isfinite(price_cny):
+            price_cny = None
+        points[int(date.timestamp())] = (
+            json.dumps(point, ensure_ascii=False, allow_nan=False), currency, price_cny,
+        )
+    conn = _get_connection()
+    try:
+        # Serialize the merge and timestamp update so readers never see half a response.
+        with conn:
+            conn.execute("BEGIN IMMEDIATE")
+            before = conn.total_changes
+            conn.executemany(
+                """
+                INSERT INTO steam_price_history
+                    (app_id, market_hash_name, traded_at, point_json, source_currency, price_cny, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(app_id, market_hash_name, traded_at) DO UPDATE SET
+                    point_json = excluded.point_json,
+                    source_currency = excluded.source_currency,
+                    price_cny = excluded.price_cny,
+                    updated_at = excluded.updated_at
+                WHERE steam_price_history.point_json != excluded.point_json
+                   OR steam_price_history.source_currency IS NOT excluded.source_currency
+                   OR steam_price_history.price_cny IS NOT excluded.price_cny
+                """,
+                [(int(app_id), name, stamp, *values, observed_at) for stamp, values in points.items()],
+            )
+            changed = conn.total_changes - before
+            conn.execute(
+                """
+                INSERT INTO steam_price_history_fetch(app_id, market_hash_name, response_json, fetched_at)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(app_id, market_hash_name) DO UPDATE SET
+                    response_json = excluded.response_json,
+                    fetched_at = excluded.fetched_at
+                """,
+                (int(app_id), name, serialized, observed_at),
+            )
+            total = conn.execute(
+                "SELECT COUNT(*) FROM steam_price_history WHERE app_id = ? AND market_hash_name = ?",
+                (int(app_id), name),
+            ).fetchone()[0]
+        return {"received": len(history), "valid": len(points), "changed": changed, "total": total}
+    finally:
+        conn.close()
+
+
+def get_price_history(
+    market_hash_name: str,
+    *,
+    app_id: int = 730,
+    max_age: float = 300,
+    now: Optional[float] = None,
+) -> Optional[dict[str, Any]]:
+    """Read a fresh shared CNY series. Expiration never deletes market history."""
+    current_time = time.time() if now is None else float(now)
+    conn = _get_connection()
+    try:
+        # A single read transaction pairs the points with their refresh timestamp.
+        with conn:
+            conn.execute("BEGIN")
+            meta = conn.execute(
+                "SELECT response_json, fetched_at FROM steam_price_history_fetch WHERE app_id = ? AND market_hash_name = ?",
+                (int(app_id), str(market_hash_name).strip()),
+            ).fetchone()
+            if meta is None or not 0 <= current_time - meta[1] < max_age:
+                return None
+            response = json.loads(meta[0])
+            currency = response.get("currency")
+            _, converted_currency = apply_currency([1.0], currency)
+            if not response.get("history") or not currency or converted_currency != "CNY":
+                return None
+            rows = conn.execute(
+                "SELECT point_json, price_cny FROM steam_price_history WHERE app_id = ? AND market_hash_name = ? ORDER BY traded_at",
+                (int(app_id), str(market_hash_name).strip()),
+            ).fetchall()
+            if not rows or any(price is None for _, price in rows):
+                return None
+            history = []
+            for raw, price in rows:
+                point = json.loads(raw)
+                point[1] = price
+                history.append(point)
+        return {"history": history, "currency": "CNY", "fetched_at": meta[1]}
+    finally:
+        conn.close()
 
 
 def set_cached_item_orders_histogram(

@@ -118,6 +118,9 @@ def test_get_sell_orders_cny_优先使用新版ssr而不是旧item_nameid缓存(
     market_orders.clear_caches()
     monkeypatch.setattr(market_orders, "db_get_item_nameid", lambda name: "stale-id")
     monkeypatch.setattr(
+        market_orders, "_fetch_action_orderbook_cny", lambda *args, **kwargs: (None, "action failed")
+    )
+    monkeypatch.setattr(
         market_orders,
         "_fetch_ssr_sell_orders_cny",
         lambda *args, **kwargs: ({"lowest_price": 12.34, "sell_orders": [(12.34, 2)]}, None),
@@ -443,14 +446,14 @@ def test_直方图接口超过12小时刷新并写入缓存(monkeypatch):
     assert saved and saved[0][0][0] == "123"
 
 
-def test_get_sell_orders_cny_ssr预取错变体时回退新版_orderbook_action(monkeypatch):
+def test_get_sell_orders_cny_订单簿成功时不请求市场页面(monkeypatch):
     from steam import market_orders
 
     market_orders.clear_caches()
     monkeypatch.setattr(
         market_orders,
         "_fetch_ssr_sell_orders_cny",
-        lambda *args, **kwargs: (None, "Steam 新版页面未预取目标变体订单簿"),
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("SSR should not be used")),
     )
     monkeypatch.setattr(
         market_orders,
@@ -470,3 +473,36 @@ def test_get_sell_orders_cny_ssr预取错变体时回退新版_orderbook_action(
     )
 
     assert result == {"lowest_price": 8.9, "sell_orders": [(8.9, 1)]}
+
+
+def test_页面限流后代理失败保留两种错误(monkeypatch):
+    import requests
+    from steam import market_orders
+
+    class Session:
+        def get(self, *args, **kwargs):
+            if kwargs.get("proxies"):
+                raise requests.exceptions.ProxyError("connection refused")
+            return type("Response", (), {"status_code": 429})()
+
+    monkeypatch.setattr(market_orders, "get_proxy_manager", lambda: type("PM", (), {
+        "get_proxies_for_request": lambda self, failed=False: {"https": "http://proxy"} if failed else None
+    })())
+    monkeypatch.setattr(market_orders, "jittered_sleep", lambda *args: None)
+    result, error = market_orders._fetch_ssr_sell_orders_cny(Session(), "Test Item", 730)
+    assert result is None
+    assert "429" in error
+    assert "ProxyError" in error
+
+
+def test_所有取价路径失败保留各层原因(monkeypatch):
+    from steam import market_orders
+
+    market_orders.clear_caches()
+    monkeypatch.setattr(market_orders, "_fetch_action_orderbook_cny", lambda *a, **k: (None, "action 403"))
+    monkeypatch.setattr(market_orders, "_fetch_ssr_sell_orders_cny", lambda *a, **k: (None, "SSR 429"))
+    monkeypatch.setattr(market_orders, "get_item_nameid", lambda *a, **k: ("123", None))
+    monkeypatch.setattr(market_orders, "fetch_item_orders_histogram", lambda *a, **k: (None, "histogram 500"))
+    result, error = market_orders.get_sell_orders_cny(object(), "Test Item", use_cache=False, request_delay=0, return_error=True)
+    assert result is None
+    assert all(reason in error for reason in ("action 403", "SSR 429", "histogram 500"))

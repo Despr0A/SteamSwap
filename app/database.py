@@ -17,6 +17,8 @@ class Purchase(SQLModel, table=True):
     price: float = 0.0
     at: float = 0.0
     market_price: Optional[float] = None
+    purchase_ratio: Optional[float] = None
+    payment_confirmed: bool = False
     sale_price: Optional[float] = None
     sold_at: Optional[float] = None
     pending_receipt: Optional[bool] = None
@@ -29,13 +31,6 @@ class Purchase(SQLModel, table=True):
     buff_sell_order_id: Optional[str] = None
     batch_id: Optional[str] = Field(default=None, index=True)
     bill_order_id: Optional[str] = None
-class Sale(SQLModel, table=True):
-    id: Optional[int] = Field(default=None, primary_key=True)
-    name: str = ""
-    goods_id: int = 0
-    price: float = 0.0
-    at: float = 0.0
-    assetid: Optional[str] = None
 class ItemNameId(SQLModel, table=True):
     market_hash_name: str = Field(primary_key=True)
     item_nameid: str
@@ -63,6 +58,8 @@ def init_db() -> None:
     engine = get_engine()
     SQLModel.metadata.create_all(engine)
     purchase_columns = (
+        ("purchase_ratio", "REAL"),
+        ("payment_confirmed", "BOOLEAN NOT NULL DEFAULT 0"),
         ("buff_order_id", "TEXT"),
         ("buff_sell_order_id", "TEXT"),
         ("batch_id", "TEXT"),
@@ -92,13 +89,33 @@ def init_db() -> None:
             conn.commit()
         except Exception:
             pass
+        conn.execute(
+            sa_text(
+                "UPDATE purchase SET payment_confirmed = 1 "
+                "WHERE buff_order_id IS NOT NULL AND buff_order_id != ''"
+            )
+        )
+        conn.execute(
+            sa_text(
+                "UPDATE purchase SET purchase_ratio = ROUND(price * 1.15 / market_price, 4) "
+                "WHERE payment_confirmed = 1 AND purchase_ratio IS NULL AND market_price > 0"
+            )
+        )
+        conn.commit()
 def _purchase_from_dict(d: dict) -> Purchase:
+    price = float(d.get("price", 0))
+    market_price = float(d["market_price"]) if d.get("market_price") is not None else None
+    ratio = d.get("purchase_ratio")
+    if ratio is None and market_price and market_price > 0:
+        ratio = round(price * 1.15 / market_price, 4)
     return Purchase(
         name=d.get("name", ""),
         goods_id=int(d.get("goods_id", 0) or 0),
-        price=float(d.get("price", 0)),
+        price=price,
         at=float(d.get("at", 0)),
-        market_price=float(d["market_price"]) if d.get("market_price") is not None else None,
+        market_price=market_price,
+        purchase_ratio=float(ratio) if ratio is not None else None,
+        payment_confirmed=d.get("payment_confirmed", bool(d.get("buff_order_id"))) is True,
         sale_price=float(d["sale_price"]) if d.get("sale_price") is not None else None,
         sold_at=float(d["sold_at"]) if d.get("sold_at") is not None else None,
         pending_receipt=bool(d["pending_receipt"]) if d.get("pending_receipt") is not None else None,
@@ -110,14 +127,6 @@ def _purchase_from_dict(d: dict) -> Purchase:
         batch_id=str(d["batch_id"]) if d.get("batch_id") else None,
         bill_order_id=str(d["bill_order_id"]) if d.get("bill_order_id") else None,
     )
-def _sale_from_dict(d: dict) -> Sale:
-    return Sale(
-        name=d.get("name", ""),
-        goods_id=int(d.get("goods_id", 0) or 0),
-        price=float(d.get("price", 0)),
-        at=float(d.get("at", 0)),
-        assetid=str(d["assetid"]) if d.get("assetid") is not None else None,
-    )
 def _purchase_to_dict(p: Purchase) -> dict:
     d = {
         "_db_id": p.id,  
@@ -125,6 +134,8 @@ def _purchase_to_dict(p: Purchase) -> dict:
         "goods_id": p.goods_id,
         "price": p.price,
         "at": p.at,
+        "purchase_ratio": p.purchase_ratio,
+        "payment_confirmed": p.payment_confirmed,
     }
     if p.market_price is not None:
         d["market_price"] = p.market_price
@@ -149,16 +160,6 @@ def _purchase_to_dict(p: Purchase) -> dict:
     if p.bill_order_id is not None:
         d["bill_order_id"] = p.bill_order_id
     return d
-def _sale_to_dict(s: Sale) -> dict:
-    d = {
-        "name": s.name,
-        "goods_id": s.goods_id,
-        "price": s.price,
-        "at": s.at,
-    }
-    if s.assetid is not None:
-        d["assetid"] = s.assetid
-    return d
 def migrate_from_json() -> bool:
     """
     One-time migration: read transactions.json → insert into SQLite →
@@ -176,12 +177,11 @@ def migrate_from_json() -> bool:
     except Exception:
         return False
     purchases = data.get("purchases", [])
-    sales = data.get("sales", [])
     with get_session() as session:
         for p in purchases:
-            session.add(_purchase_from_dict(p))
-        for s in sales:
-            session.add(_sale_from_dict(s))
+            # Older automatic checkouts stored their BUFF bill ID after payment.
+            if p.get("payment_confirmed", bool(p.get("buff_order_id"))) is True:
+                session.add(_purchase_from_dict(p))
         session.commit()
     try:
         if _TRANSACTIONS_BAK.exists():
@@ -191,64 +191,37 @@ def migrate_from_json() -> bool:
         pass
     return True
 _PURCHASE_UPDATABLE = frozenset({
-    "name", "price", "goods_id", "market_price", "sale_price",
+    "goods_id", "sale_price",
     "sold_at", "pending_receipt", "assetid", "listing", "listing_status",
     "buff_order_id", "buff_sell_order_id", "batch_id", "bill_order_id",
 })
-_SALE_UPDATABLE = frozenset({"name", "price", "goods_id", "assetid", "at"})
 def db_append_purchase(p: dict) -> None:
+    if p.get("payment_confirmed") is not True:
+        raise ValueError("Only confirmed payments may be recorded")
     with get_session() as session:
         session.add(_purchase_from_dict(p))
         session.commit()
 def db_get_purchases() -> list:
     with get_session() as session:
-        rows = session.exec(select(Purchase).order_by(Purchase.id)).all()
+        rows = session.exec(select(Purchase).where(Purchase.payment_confirmed == True).order_by(Purchase.id)).all()
         return [_purchase_to_dict(r) for r in rows]
-def db_append_sale(s: dict) -> None:
-    with get_session() as session:
-        session.add(_sale_from_dict(s))
-        session.commit()
-def db_get_sales() -> list:
-    with get_session() as session:
-        rows = session.exec(select(Sale).order_by(Sale.id)).all()
-        return [_sale_to_dict(r) for r in rows]
 def db_clear_transactions() -> None:
     from sqlmodel import delete as sql_delete
     with get_session() as session:
         session.exec(sql_delete(Purchase))
-        session.exec(sql_delete(Sale))
         session.commit()
 def db_replace_transactions(purchases: list, sales: list) -> None:
     from sqlmodel import delete as sql_delete
     with get_session() as session:
         session.exec(sql_delete(Purchase))
-        session.exec(sql_delete(Sale))
         for p in purchases:
-            session.add(_purchase_from_dict(p))
-        for s in sales:
-            session.add(_sale_from_dict(s))
+            if p.get("payment_confirmed", bool(p.get("buff_order_id"))) is True:
+                session.add(_purchase_from_dict(p))
         session.commit()
-def db_delete_purchase(idx: int) -> bool:
-    """Delete purchase by positional index (0-based, ordered by id)."""
-    with get_session() as session:
-        rows = session.exec(select(Purchase).order_by(Purchase.id)).all()
-        if 0 <= idx < len(rows):
-            session.delete(rows[idx])
-            session.commit()
-            return True
-    return False
-def db_delete_sale(idx: int) -> bool:
-    with get_session() as session:
-        rows = session.exec(select(Sale).order_by(Sale.id)).all()
-        if 0 <= idx < len(rows):
-            session.delete(rows[idx])
-            session.commit()
-            return True
-    return False
 def db_update_purchase(idx: int, data: dict) -> bool:
     """按位置索引更新（兼容旧接口，UI 路由使用）。"""
     with get_session() as session:
-        rows = session.exec(select(Purchase).order_by(Purchase.id)).all()
+        rows = session.exec(select(Purchase).where(Purchase.payment_confirmed == True).order_by(Purchase.id)).all()
         if 0 <= idx < len(rows):
             row = rows[idx]
             for k, v in data.items():
@@ -270,40 +243,6 @@ def db_update_purchase_by_id(db_id: int, data: dict) -> bool:
             if k in _PURCHASE_UPDATABLE:
                 setattr(row, k, v)
         session.add(row)
-        session.commit()
-        return True
-def db_delete_purchase_by_id(db_id: int) -> bool:
-    """按主键 ID 删除，O(1) 操作。"""
-    if not db_id:
-        return False
-    with get_session() as session:
-        row = session.get(Purchase, db_id)
-        if row is None:
-            return False
-        session.delete(row)
-        session.commit()
-        return True
-def db_update_sale(idx: int, data: dict) -> bool:
-    with get_session() as session:
-        rows = session.exec(select(Sale).order_by(Sale.id)).all()
-        if 0 <= idx < len(rows):
-            row = rows[idx]
-            for k, v in data.items():
-                if k in _SALE_UPDATABLE:
-                    setattr(row, k, v)
-            session.add(row)
-            session.commit()
-            return True
-    return False
-def db_delete_sale_by_id(db_id: int) -> bool:
-    """Delete by primary ID, O(1) operation."""
-    if not db_id:
-        return False
-    with get_session() as session:
-        row = session.get(Sale, db_id)
-        if row is None:
-            return False
-        session.delete(row)
         session.commit()
         return True
 def db_get_item_nameid(market_hash_name: str) -> Optional[str]:

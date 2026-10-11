@@ -35,7 +35,8 @@ from app.services.buff_checkout_guard import (
     update_checkout,
 )
 from app.services.steam_client import SteamClient
-from app.state import get_state, append_sale
+from app.state import get_state
+from utils.diagnostics import exception_details, format_exception
 from app.strategy_engine import apply_strategy_to_config
 from buff import (
     BuffAuthExpired,
@@ -440,7 +441,8 @@ def _run_pipeline(config: dict) -> None:
                     return
                 continue
 
-            ctx.log("支付方式与 Buff 客户端已就绪", "info", category="buff")
+            if not observation_only:
+                ctx.log("支付方式与 Buff 客户端已就绪", "info", category="buff")
             now_ts = time.time()
             expired_ids = [gid for gid, exp in failed_goods_ids_ttl.items() if now_ts >= exp]
             for gid in expired_ids:
@@ -632,9 +634,9 @@ def _run_pipeline_guarded(config: dict) -> None:
                 last_error_type=type(exc).__name__,
             )
         state.log(
-            f"买入流水线发生未处理异常: {type(exc).__name__}: {exc}",
-            "error",
-            category="pipeline",
+            f"买入流水线发生未处理异常: {format_exception('pipeline', exc, stage='run')}",
+            "error", category="pipeline",
+            diagnostic={"code": "UNEXPECTED_ERROR", "stage": "run", "operation": "pipeline", **exception_details(exc)},
         )
         state.set_status("error", "PIPELINE_UNEXPECTED_ERROR")
     finally:

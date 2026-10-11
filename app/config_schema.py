@@ -62,8 +62,6 @@ DEFAULTS = {
         "sell_trend_days": 7,
         "retry_interval_seconds": 300,
         "buff_retry_delay_seconds": 5,
-        "current_price_refresh_minutes": 10,
-        "resell_ratio": 0.85,
         "safe_purchase_hard_qty_cap": 50,
         "safe_purchase_liquidity_ratio": 0.05,
         "safe_purchase_low_price_threshold": 5.0,
@@ -80,15 +78,9 @@ DEFAULTS = {
         "start_time_hour": 8,
         "end_time_hour": 22,
     },
-    "inventory": {
-        "refresh_seconds": 600,
-    },
     "notify": {
         "pushplus_token": "",
         "windows_toast_enabled": True,
-        "holdings_report_interval_hours": 0,
-        "holdings_report_change_threshold_pct": 20,
-        "holdings_report_drop_enabled": True,
         "email_user": "",
         "email_pass": "",
         "imap_server": "imap.qq.com",
@@ -161,7 +153,6 @@ def _validate_ranges(cfg: dict) -> dict:
     pipe = cfg.get("pipeline") or {}
     stab = cfg.get("stability") or {}
     buff = cfg.get("buff") or {}
-    inv = cfg.get("inventory") or {}
     system = cfg.get("system") or {}
 
     if isinstance(pipe.get("max_discount"), (int, float)):
@@ -214,12 +205,6 @@ def _validate_ranges(cfg: dict) -> dict:
                 "[config] pipeline.reference_price_required_observations 不能小于2，已修正为2"
             )
             pipe["reference_price_required_observations"] = 2
-
-    if isinstance(inv.get("refresh_seconds"), (int, float)):
-        v = inv["refresh_seconds"]
-        if 0 < v < 600:
-            warnings.warn(f"[config] inventory.refresh_seconds={v} 过短，已修正为600秒")
-            inv["refresh_seconds"] = 600
 
     timezone_name = system.get("timezone")
     system["timezone"] = (

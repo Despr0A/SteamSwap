@@ -11,6 +11,7 @@ import time
 import requests
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Optional
+from utils.diagnostics import endpoint, format_exception
 def _load_proxy_pool_cfg() -> dict:
     try:
         from app.config_loader import load_app_config_validated
@@ -32,7 +33,7 @@ def _pm_log(msg: str) -> None:
         app_log(msg, "debug", category="proxy")
     except Exception:
         pass
-def test_one_proxy(proxy_cfg: dict, test_url: str, timeout: int) -> dict:
+def test_one_proxy(proxy_cfg: dict, test_url: str, timeout: int, *, check_steam: bool = False) -> dict:
     proxy_url = _build_proxy_url(proxy_cfg)
     proxies = {"http": proxy_url, "https": proxy_url}
     result = {
@@ -44,21 +45,43 @@ def test_one_proxy(proxy_cfg: dict, test_url: str, timeout: int) -> dict:
         "error": None,
     }
     start = time.time()
+    active_url = test_url
+    stage = "ip_probe"
     try:
         resp = requests.get(test_url, proxies=proxies, timeout=timeout)
         latency = (time.time() - start) * 1000
         if resp.status_code == 200:
+            if check_steam:
+                active_url = "https://steamcommunity.com/market/orderbook"
+                stage = "steam_orderbook_probe"
+                steam_resp = requests.get(
+                    "https://steamcommunity.com/market/orderbook",
+                    params={"q": "Load", "qp": '[730,"Nova | Wood Fired (Field-Tested)"]'},
+                    headers={"x-valve-request-type": "queryAction"},
+                    proxies=proxies, timeout=timeout,
+                )
+                if steam_resp.status_code != 200:
+                    result["error"] = f"Steam 订单簿 HTTP {steam_resp.status_code}"
+                    return result
+                data = steam_resp.json()
+                for _ in range(3):
+                    if not isinstance(data, dict) or data.get("success") in (False, 0, "0"):
+                        break
+                    if "rgCompactSellOrders" in data:
+                        result["status"] = "ok"
+                        break
+                    data = data.get("data")
+                if result["status"] != "ok":
+                    result["error"] = "Steam 订单簿未返回有效数据"
+                    return result
+                latency = (time.time() - start) * 1000
             result["status"] = "ok"
             result["ip_detected"] = resp.text.strip()
             result["latency_ms"] = round(latency, 1)
         else:
             result["error"] = f"HTTP {resp.status_code}"
-    except requests.exceptions.ProxyError:
-        result["error"] = "代理验证失败或节点拒绝连接"
-    except requests.exceptions.Timeout:
-        result["error"] = "请求超时"
     except Exception as e:
-        result["error"] = str(e)
+        result["error"] = format_exception("proxy.availability", e, stage=stage, endpoint=endpoint(active_url), proxy=endpoint(proxy_url), timeout_seconds=timeout)
     return result
 class ProxyManager:
     def __init__(self):
@@ -127,11 +150,10 @@ class ProxyManager:
         cfg = _load_proxy_pool_cfg()
         test_url = cfg.get("test_url", "https://ipv4.webshare.io/")
         timeout = int(cfg.get("timeout_seconds", 10))
-        results_map = {}
         max_workers = min(len(proxies_snapshot), 20)
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             future_to_proxy = {
-                executor.submit(test_one_proxy, p["config"], test_url, timeout): p["config"]
+                executor.submit(test_one_proxy, p["config"], test_url, timeout, check_steam=True): p["config"]
                 for p in proxies_snapshot
             }
             for future in as_completed(future_to_proxy):
@@ -143,25 +165,33 @@ class ProxyManager:
                         score = max(1, 100000 - res["latency_ms"])
                     else:
                         score = 0
-                except Exception:
+                except Exception as exc:
                     score = 0
-                results_map[key] = score
+                    res = {"error": format_exception("proxy.warmup", exc, proxy=endpoint(_build_proxy_url(config)))}
+                with self._lock:
+                    for p in self._proxies:
+                        if p["config"] == config:
+                            p["score"] = score
+                    self._sync_cycle()
+                if score == 0:
+                    _pm_log(f"[ProxyManager] Steam 可用性检测失败 {key[0]}:{key[1]}: {res.get('error') or '未知原因'}")
         with self._lock:
-            for p in self._proxies:
-                key = (p["config"].get("host"), p["config"].get("port"))
-                if key in results_map:
-                    p["score"] = results_map[key]
-            self._sync_cycle()
             self._warming_up = False
         _pm_log(f"[ProxyManager] 预热和检测代理池完成，已按评分降序重载代理循环队列。")
     def get_strategy(self) -> int:
         return self._cached_strategy
     def is_proxy_enabled(self) -> bool:
         return self._cached_enabled and self._cached_strategy != 3
-    def get_next_proxy_dict(self):
+    def get_next_proxy_dict(self, excluded=None):
         with self._lock:
-            configs = self._proxy_configs
-            weights = self._proxy_weights
+            excluded = set(excluded or ())
+            candidates = [
+                (config, weight)
+                for config, weight in zip(self._proxy_configs, self._proxy_weights)
+                if weight > 0 and _build_proxy_url(config) not in excluded
+            ]
+            configs = [config for config, _ in candidates]
+            weights = [weight for _, weight in candidates]
             if not configs or all(w == 0 for w in weights):
                 _pm_log("[ProxyManager] get_next_proxy_dict → 代理池为空或全部失败，返回 None")
                 return None

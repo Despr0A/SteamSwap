@@ -2,6 +2,7 @@ import json
 import time
 import logging
 import copy
+import uuid
 from typing import Callable, Optional
 from urllib.parse import urljoin
 
@@ -23,6 +24,7 @@ from .request_policy import (
     parse_retry_after,
 )
 from utils.delay import jittered_sleep
+from utils.diagnostics import classify_exception, endpoint, exception_details, one_line, redact
 
 BUFF_COOKIE_DOMAIN = "buff.163.com"
 _SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
@@ -352,9 +354,47 @@ class BuffBuyer:
     clear_request_circuit = reset_request_circuit
 
     def _make_request(self, method: str, url: str, **kwargs) -> dict:
+        started = time.monotonic()
+        details = {
+            "request_id": uuid.uuid4().hex[:12], "operation": "buff.api",
+            "stage": "request_policy", "method": method.upper(),
+            "endpoint": endpoint(url), "account": self.account_key[:12],
+            "request_attempted": False,
+            "timeout_seconds": kwargs.get("timeout", self.request_timeout),
+        }
+        try:
+            return self._make_request_impl(method, url, details, **kwargs)
+        except Exception as exc:
+            code = classify_exception(exc)
+            if isinstance(exc, BuffWriteResultUnknown):
+                code = "WRITE_RESULT_UNKNOWN"
+            elif isinstance(exc, BuffRateLimited):
+                code = "RATE_LIMITED"
+            elif isinstance(exc, BuffAuthExpired):
+                code = "AUTH_REQUIRED"
+            elif isinstance(exc, BuffVerificationRequired):
+                code = "VERIFICATION_REQUIRED"
+            elif isinstance(exc, BuffRequestBlocked):
+                code = "REQUEST_BLOCKED"
+            details.update(
+                code=code, elapsed_ms=round((time.monotonic() - started) * 1000),
+                **exception_details(exc),
+            )
+            if getattr(exc, "status_code", None) is not None:
+                details["status"] = exc.status_code
+            if getattr(exc, "retry_after", None) is not None:
+                details["retry_after"] = exc.retry_after
+            details["action"] = "禁止自动重试，核对订单结果" if isinstance(exc, BuffWriteResultUnknown) else "根据异常类型恢复会话、验证或等待冷却"
+            exc.diagnostic = redact(details)
+            from app.state import log
+            log(f"[BUFF] {one_line(exc.diagnostic)}", "error", category="buff", diagnostic=exc.diagnostic)
+            raise
+
+    def _make_request_impl(self, method: str, url: str, diagnostic: dict, **kwargs) -> dict:
         method = method.upper()
         headers_override = kwargs.pop("headers", None)
         with_cashier_trace_id = bool(kwargs.pop("with_cashier_trace_id", False))
+        best_effort_write = bool(kwargs.pop("best_effort_write", False))
         verify = kwargs.pop("verify", self.use_ssl)
         timeout = kwargs.pop("timeout", self.request_timeout)
         is_write = method not in _SAFE_METHODS
@@ -374,6 +414,7 @@ class BuffBuyer:
                     else:
                         h[key] = value
             if is_write:
+                diagnostic["stage"] = "csrf_validate"
                 if not self.csrf_token:
                     raise BuffAuthExpired(
                         "BUFF csrf_token 缺失，写请求已在本地阻止"
@@ -386,6 +427,7 @@ class BuffBuyer:
                 h["Buff-Cashier-Trace-ID"] = self._buff_cashier_trace_id
 
             try:
+                diagnostic.update(stage="request", request_attempted=True)
                 r = self.session.request(
                     method,
                     url,
@@ -410,6 +452,12 @@ class BuffBuyer:
             status_code = int(getattr(r, "status_code", 0) or 0)
             response_text = str(getattr(r, "text", "") or "")
             response_headers = getattr(r, "headers", {}) or {}
+            diagnostic.update(
+                stage="response_validate", status=status_code,
+                endpoint=endpoint(getattr(r, "url", "") or url),
+                content_type=_header_value(response_headers, "Content-Type") or "unknown",
+                redirects=[endpoint(getattr(row, "url", "")) for row in getattr(r, "history", ())],
+            )
             response_trace_id = _header_value(
                 response_headers, "Buff-Cashier-Trace-ID"
             ).strip()
@@ -475,7 +523,8 @@ class BuffBuyer:
                 raise BuffAuthExpired("BUFF API 已重定向到登录页")
             if navigation_kind == "verification" or redirected:
                 message = "BUFF API 重定向到安全验证页" if navigation_kind else "BUFF API 出现非预期重定向"
-                self.request_policy.trip_verification(self.account_key, message)
+                if not best_effort_write:
+                    self.request_policy.trip_verification(self.account_key, message)
                 if is_write:
                     raise BuffWriteResultUnknown(
                         f"{message}，写请求结果未知，禁止自动重试",
@@ -507,7 +556,8 @@ class BuffBuyer:
                     or data.get("message")
                     or "Buff 需要刷新页面或完成人机验证"
                 )
-                self.request_policy.trip_verification(self.account_key, str(msg))
+                if not best_effort_write:
+                    self.request_policy.trip_verification(self.account_key, str(msg))
                 if is_write:
                     raise BuffWriteResultUnknown(
                         "BUFF 写请求返回安全验证状态，结果未知，禁止自动重试",
@@ -537,9 +587,10 @@ class BuffBuyer:
                     raise BuffAuthExpired("BUFF API 返回登录页面")
                 if is_write:
                     message = "BUFF 写请求返回非预期 HTML，已停止后续请求"
-                    self.request_policy.trip_verification(
-                        self.account_key, message
-                    )
+                    if not best_effort_write:
+                        self.request_policy.trip_verification(
+                            self.account_key, message
+                        )
                     raise BuffWriteResultUnknown(
                         "BUFF 写请求返回 HTML，结果未知，禁止自动重试",
                         method=method,
@@ -1193,6 +1244,7 @@ class BuffBuyer:
                 API_ASK_SELLER_SEND,
                 headers=h,
                 data=json.dumps(payload),
+                best_effort_write=True,
             )
         except (BuffAuthExpired, BuffRequestBlocked, BuffWriteResultUnknown):
             raise

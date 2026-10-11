@@ -29,7 +29,6 @@ def test_config_route_persists_all_settings_checkboxes(monkeypatch):
         config.ConfigBody(
             config={
                 "pipeline": {"start_time_limit_enabled": True},
-                "notify": {"holdings_report_drop_enabled": False},
                 "steam_confirm": {"enabled": True},
                 "system": {"buff_session_keepalive_enabled": True},
             }
@@ -39,7 +38,7 @@ def test_config_route_persists_all_settings_checkboxes(monkeypatch):
     assert result["ok"] is True
     assert result["config"]["pipeline"]["max_discount"] == 0.8
     assert result["config"]["pipeline"]["start_time_limit_enabled"] is True
-    assert result["config"]["notify"]["holdings_report_drop_enabled"] is False
+    assert "holdings_report_drop_enabled" not in result["config"]["notify"]
     assert result["config"]["steam_confirm"]["enabled"] is True
     assert result["config"]["system"]["buff_session_keepalive_enabled"] is True
 
