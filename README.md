@@ -43,7 +43,7 @@
 
 ## 🔄 项目来源与改版说明
 
-**SteamSwap 是基于 [AetherSwap](https://github.com/) 的个人改版与持续维护版本。** 本项目保留原项目“Steam 饰品跨区购买、上架与余额管理”的核心思路，但已针对实际使用场景进行了较大范围的功能扩展、稳定性加固和界面重制；它不是对原项目的简单复制。
+**SteamSwap 是基于 [AetherSwap]([https://github.com/](https://github.com/VexedWilosn/AetherSwap)) 的个人改版与持续维护版本。** 本项目保留原项目“Steam 饰品购买”的核心思路，但已针对实际使用场景进行了较大范围的功能扩展、稳定性加固和界面重制；它不是对原项目的简单复制。
 
 ### 相对原项目的主要修改
 
