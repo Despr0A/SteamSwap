@@ -34,6 +34,9 @@
 </div>
 
 
+SteamSwap 基于 [AetherSwap](https://github.com/VexedWilosn/AetherSwap) 进行个人修改与持续维护，保留 Steam 饰品购买的核心流程。
+
+本次更新详见 [2026-10-11 改动说明](docs/CHANGELOG_2026-10-11.md)，错误排查详见 [诊断文档](docs/ERROR_DIAGNOSTICS.md)。
 
 ## 🚀 快速开始
 
