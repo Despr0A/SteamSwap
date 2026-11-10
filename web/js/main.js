@@ -12,7 +12,10 @@ async function tabSwitch(name) {
     if (!ok) return false;
   }
   document.querySelectorAll(".panel").forEach((p) => p.classList.remove("active"));
-  document.querySelectorAll(".nav-item").forEach((b) => b.classList.remove("active"));
+  document.querySelectorAll(".nav-item").forEach((b) => {
+    b.classList.remove("active");
+    b.removeAttribute("aria-current");
+  });
   const panel = el("panel-" + name);
   const btn = document.querySelector(`.nav-menu [data-tab="${name}"]`);
   console.log("tabSwitch found panel:", panel, "btn:", btn);
@@ -24,9 +27,21 @@ async function tabSwitch(name) {
   }
   if (btn) {
     btn.classList.add("active");
+    btn.setAttribute("aria-current", "page");
     const text = btn.querySelector("span")?.innerText;
     if (text && el("page-title-display")) el("page-title-display").innerText = text;
   }
+  const descriptions = {
+    auto: "从配置到执行，在一个工作区掌握交易流程。",
+    purchases: "查看已支付饰品的购入价格、时间与购入时比例。",
+    accounts: "集中管理 Steam 账号、登录验证与账号凭据。",
+    "steam-guard": "查看与复制当前账号的动态安全令牌。",
+    proxy: "配置出口节点、路由策略与网络连通性检测。",
+    strategies: "组合交易模块，模拟策略，并确认启用变更。",
+    settings: "配置数据源、交易参数与通知服务，保存后生效。",
+    debug: "从饰品报告追溯筛选结果与关联网络请求。",
+  };
+  if (el("page-description")) el("page-description").textContent = descriptions[name] || "";
   if (name === "debug") refreshLog();
   if (name === "purchases") refreshTransactions();
   if (name === "accounts") refreshAccounts();
@@ -241,7 +256,27 @@ async function copyPayLink() {
 }
 function bindEvents() {
   document.querySelectorAll(".nav-item").forEach((btn) => {
+    btn.title = btn.querySelector("span")?.textContent || "";
     btn.addEventListener("click", () => tabSwitch(btn.dataset.tab));
+  });
+  document.querySelectorAll("[data-open-panel]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      if (await tabSwitch(btn.dataset.openPanel)) {
+        const heading = el("page-title-display");
+        heading?.setAttribute("tabindex", "-1");
+        heading?.focus({ preventScroll: true });
+      }
+    });
+  });
+  document.querySelectorAll(".proxy-strategy-card, #steam-token-circle").forEach((control) => {
+    control.setAttribute("role", "button");
+    control.tabIndex = 0;
+    control.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        control.click();
+      }
+    });
   });
   el("btn-quit")?.addEventListener("click", async () => {
     if (await appConfirm("确定要退出程序吗？退出后后台所有的交易、保活和查询任务都将停止。", { title: "退出程序", danger: true, confirmText: "退出" })) {
@@ -261,6 +296,13 @@ function bindEvents() {
   el("btn-paid")?.addEventListener("click", () => confirmPayment(true));
   el("btn-fail")?.addEventListener("click", () => confirmPayment(false));
   el("btn-copy-pay")?.addEventListener("click", copyPayLink);
+  el("btn-add-account")?.addEventListener("click", () => openAccountForm());
+  el("account-form-cancel")?.addEventListener("click", closeAccountForm);
+  el("account-form-save")?.addEventListener("click", saveAccountForm);
+  el("accounts-search")?.addEventListener("input", (e) => {
+    accountsSearchTerm = e.target.value || "";
+    renderAccountsUI(accountsCache, accountsCurrentId);
+  });
   el("btn-save-config")?.addEventListener("click", () =>
     saveConfigFromForm()
       .then(() => toast("设置已保存"))
@@ -274,6 +316,12 @@ function bindEvents() {
   el("btn-export-log")?.addEventListener("click", exportLog);
   el("log-search")?.addEventListener("input", () => renderLogFull());
   el("log-level")?.addEventListener("change", () => renderLogFull());
+  el("log-layer")?.addEventListener("change", () => renderLogFull());
+  el("log-outcome")?.addEventListener("change", () => renderLogFull());
+  el("log-output")?.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-report-network]");
+    if (button) showReportNetwork(button.dataset.reportNetwork);
+  });
   el("cfg-verbose-debug")?.addEventListener("change", async () => {
     try {
       const result = await fetchJson(API + "/config", {

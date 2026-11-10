@@ -1,6 +1,8 @@
 import base64
 import time
 
+import pytest
+
 
 def test_windows_toast_is_a_noop_outside_windows(monkeypatch):
     from app import notify
@@ -23,14 +25,14 @@ def test_windows_toast_launches_hidden_powershell(monkeypatch):
         lambda command, **kwargs: calls.append((command, kwargs)) or type("Result", (), {"returncode": 0})(),
     )
 
-    assert notify.send_windows_toast("AetherSwap", "待付款") is True
+    assert notify.send_windows_toast("SteamSwap", "待付款") is True
 
     command, kwargs = calls[0]
     assert command[:5] == ["powershell.exe", "-NoProfile", "-NonInteractive", "-WindowStyle", "Hidden"]
     assert "-EncodedCommand" in command
     script = base64.b64decode(command[-1]).decode("utf-16le")
     assert "ToastNotificationManager" in script
-    assert 'CreateToastNotifier("AetherSwap")' in script
+    assert 'CreateToastNotifier("SteamSwap")' in script
     assert "CreateTextNode($title)" in script
     assert "CreateTextNode($message)" in script
     assert kwargs["stdout"] is notify.subprocess.DEVNULL
@@ -80,7 +82,7 @@ def test_winrt_toast_uses_aumid_and_launch_uri(monkeypatch):
     monkeypatch.setattr(notify, "_windows_registration_result", False)
 
     assert notify.send_windows_toast("标题", "订单待付款") is True
-    assert ("aumid", "AetherSwap") in calls
+    assert ("aumid", "SteamSwap") in calls
     assert "http://127.0.0.1:28472/" in calls[0][1]
     assert "订单待付款" in calls[0][1]
 
@@ -151,7 +153,7 @@ def test_unpacked_windows_app_registers_aumid_shortcut(monkeypatch, tmp_path):
     assert ("Save",) in shortcut_calls
     assert property_calls[0][0] == "SetValue"
     assert property_calls[0][1] == "PKEY_AppUserModel_ID"
-    assert property_calls[0][2] == ("PROPVARIANT", "AetherSwap")
+    assert property_calls[0][2] == ("PROPVARIANT", "SteamSwap")
     assert property_calls[-1] == ("Commit",)
 
 
@@ -183,9 +185,91 @@ def test_payment_wait_notifies_windows_without_pushplus(monkeypatch, capsys):
     )
 
     assert paid is False
-    assert notices == [("AetherSwap: BUFF 待付款", "Test Item\n数量: 2，总价: 25.00 元\n付款方式: wechat")]
+    assert notices == [("SteamSwap: BUFF 待付款", "Test Item\n数量: 2，总价: 25.00 元\n付款方式: wechat")]
     assert "https://pay.example/order" in capsys.readouterr().out
     assert pending == [{"pay_url": "https://pay.example/order", "pay_type": "wechat", "name": "Test Item", "order_id": "order-1"}, None]
+
+
+@pytest.mark.parametrize("confirmed", [True, False])
+def test_browser_confirmation_updates_terminal(monkeypatch, capsys, confirmed):
+    import threading
+    from app import pipeline_steps, state
+    from app.routes import status
+
+    current = state.State()
+    monkeypatch.setattr(state, "get_state", lambda: current)
+    reader_finished = threading.Event()
+    waiting = threading.Event()
+    monkeypatch.setattr(
+        pipeline_steps, "_start_console_payment_confirmation",
+        lambda *_args: reader_finished,
+    )
+    results = []
+
+    def wait(**kwargs):
+        waiting.set()
+        return current.wait_payment_confirm(**kwargs)
+
+    def run():
+        results.append(pipeline_steps._do_payment_notify_and_wait(
+            {"name": "Test Item"},
+            {"notify": {"windows_toast_enabled": False, "email_timeout_seconds": 2}},
+            1.0, 1, "https://pay.example/order", "wechat", "order-1", 0.0,
+            current.set_pending_payment, wait, current.confirm_payment,
+            current.is_stop_requested, None,
+        ))
+
+    worker = threading.Thread(target=run, daemon=True)
+    worker.start()
+    try:
+        assert waiting.wait(2)
+        status.api_confirm_payment(status.ConfirmBody(ok=confirmed))
+        worker.join(2)
+        assert not worker.is_alive()
+    finally:
+        current.request_stop()
+        worker.join(2)
+
+    assert results == [confirmed]
+    assert reader_finished.is_set()
+    assert current.get_pending_payment() is None
+    output = capsys.readouterr().out
+    assert ("已收到付款确认，继续处理订单" if confirmed else "付款等待已结束：已取消或超时") in output
+
+
+@pytest.mark.parametrize("outcome", ["timeout", "stop", "error"])
+def test_terminal_reports_payment_wait_ending(monkeypatch, capsys, outcome):
+    from app import pipeline_steps
+
+    monkeypatch.setattr(pipeline_steps, "_start_console_payment_confirmation", lambda *_args: None)
+    pending = []
+
+    def wait(**_kwargs):
+        if outcome == "error":
+            raise RuntimeError("private error details")
+        return False
+
+    def run():
+        return pipeline_steps._do_payment_notify_and_wait(
+            {"name": "Test Item"}, {"notify": {"windows_toast_enabled": False}},
+            1.0, 1, "https://pay.example/order", "wechat", "order-1", 0.0,
+            pending.append, wait, lambda _ok: None, lambda: outcome == "stop", None,
+        )
+
+    if outcome == "error":
+        with pytest.raises(RuntimeError, match="private error details"):
+            run()
+    else:
+        assert run() is False
+    expected = {
+        "timeout": "付款等待已结束：已取消或超时",
+        "stop": "付款等待已停止",
+        "error": "付款等待异常结束，请查看应用日志核对订单状态",
+    }
+    output = capsys.readouterr().out
+    assert expected[outcome] in output
+    assert "private error details" not in output
+    assert pending[-1] is None
 
 
 def test_console_payment_command_accepts_paid_and_cancel_values():

@@ -48,7 +48,7 @@ def test_historical_sold_same_name_does_not_authorize_different_asset():
 
 def test_unsold_same_name_does_not_authorize_different_asset():
     # Even an unsold same-name row is not proof that this particular inventory
-    # asset came from AetherSwap.
+    # asset came from SteamSwap.
     assert _find_buy_record([_purchase()], "personal-drop", ITEM_NAME) is None
 
 

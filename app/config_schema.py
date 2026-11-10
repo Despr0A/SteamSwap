@@ -42,6 +42,9 @@ DEFAULTS = {
     "pipeline": {
         "target_balance": 100,
         "max_discount": 0.9,
+        # Sell-snapshot freshness is reported for inspection only.
+        # The history cache independently controls refreshes before checks.
+        "steam_reference_price_ttl_seconds": 300,
         "huge_profit_offset": 0.05,
         "iflow_top_n": 50,
         "exclude_keywords": ["印花"],
@@ -62,6 +65,7 @@ DEFAULTS = {
         "sell_trend_days": 7,
         "retry_interval_seconds": 300,
         "buff_retry_delay_seconds": 5,
+        # 单品采购数量限制：只限制单个饰品本轮采购量，不代表账户库存总量。
         "safe_purchase_hard_qty_cap": 50,
         "safe_purchase_liquidity_ratio": 0.05,
         "safe_purchase_low_price_threshold": 5.0,
@@ -205,6 +209,14 @@ def _validate_ranges(cfg: dict) -> dict:
                 "[config] pipeline.reference_price_required_observations 不能小于2，已修正为2"
             )
             pipe["reference_price_required_observations"] = 2
+
+    if isinstance(pipe.get("steam_reference_price_ttl_seconds"), (int, float)):
+        v = float(pipe["steam_reference_price_ttl_seconds"])
+        if not 1 <= v <= 7 * 24 * 60 * 60:
+            warnings.warn(
+                f"[config] pipeline.steam_reference_price_ttl_seconds={v} 超出范围[1,604800]，已修正"
+            )
+            pipe["steam_reference_price_ttl_seconds"] = max(1.0, min(v, 7 * 24 * 60 * 60))
 
     timezone_name = system.get("timezone")
     system["timezone"] = (

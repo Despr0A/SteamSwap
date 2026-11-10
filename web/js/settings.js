@@ -420,7 +420,7 @@ async function importConfigFromFile(file) {
   }
 }
 // ---- 配置完整性检查 & 新手引导向导 ----
-const WIZARD_SKIP_KEY = "aetherswap_onboard_skip";
+const WIZARD_SKIP_KEY = "steamswap_onboard_skip";
 
 function _wizardIsFirstTime(cfg, accounts, buffNoCookie) {
   const sg = cfg.steam_guard || {};
@@ -749,7 +749,7 @@ function renderGettingStartedCard(cfg, accounts) {
   if (!card) return;
 
   // 已被用户手动关闭时不再显示
-  if (localStorage.getItem("aetherswap_gs_card_closed") === "1") {
+  if (localStorage.getItem("steamswap_gs_card_closed") === "1") {
     card.style.display = "none";
     return;
   }
@@ -801,7 +801,7 @@ function renderGettingStartedCard(cfg, accounts) {
   if (closeBtn && !closeBtn._bound) {
     closeBtn._bound = true;
     closeBtn.addEventListener("click", () => {
-      localStorage.setItem("aetherswap_gs_card_closed", "1");
+      localStorage.setItem("steamswap_gs_card_closed", "1");
       card.style.display = "none";
     });
   }

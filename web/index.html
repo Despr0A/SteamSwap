@@ -3,8 +3,9 @@
 
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>AetherSwap</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#f3f2f1" />
+  <title>SteamSwap · 交易工作台</title>
   <link rel="stylesheet" href="/css/variables.css" />
   <link rel="stylesheet" href="/css/base.css" />
   <link rel="stylesheet" href="/css/layout.css?v=2" />
@@ -238,6 +239,7 @@
       line-height: 1.4;
     }
   </style>
+  <link rel="stylesheet" href="/css/fluent.css" />
 
 </head>
 
@@ -248,18 +250,21 @@
         <div class="logo-hitbox">
           <div class="logo-box">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"></path>
+              <rect x="2" y="2" width="12" height="12" rx="2"></rect>
+              <rect x="10" y="10" width="12" height="12" rx="2"></rect>
+              <path d="M5 8h6m-2-2 2 2-2 2M13 16h6m-4-2-2 2 2 2"></path>
             </svg>
           </div>
         </div>
         <div class="brand-info">
-          <div class="brand-name">AetherSwap</div>
-          <div class="brand-desc">自动化交易终端</div>
+          <div class="brand-name">SteamSwap</div>
+          <div class="brand-desc">交易工作台</div>
         </div>
       </div>
 
-      <nav class="nav-menu">
-        <button class="nav-item active" data-tab="auto">
+      <nav class="nav-menu" aria-label="工作区导航">
+        <div class="nav-section-label">工作区</div>
+        <button class="nav-item active" data-tab="auto" aria-current="page" title="仪表盘">
           <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <rect x="3" y="3" width="7" height="7"></rect>
             <rect x="14" y="3" width="7" height="7"></rect>
@@ -279,6 +284,7 @@
 
 
 
+        <div class="nav-section-label">管理</div>
         <button class="nav-item" data-tab="accounts">
           <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
@@ -317,6 +323,7 @@
           </svg>
           <span>策略中心</span>
         </button>
+        <div class="nav-section-label">系统</div>
         <button class="nav-item" data-tab="settings">
           <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <circle cx="12" cy="12" r="3"></circle>
@@ -355,15 +362,19 @@
         </button>
         <div
           style="font-size: 0.75rem; color: var(--text-muted, #888); text-align: center; margin-top: 10px; opacity: 0.6; cursor: default;">
-          制作者：烦恼的威尔逊
+          SteamSwap · 独立维护
         </div>
       </div>
     </aside>
 
     <main class="main-content">
       <header class="top-header">
-        <h1 class="page-title" id="page-title-display">仪表盘</h1>
-        <div class="status-indicator" id="status-pill">
+        <div class="page-heading">
+          <div class="page-eyebrow">STEAMSWAP / WORKSPACE</div>
+          <h1 class="page-title" id="page-title-display">仪表盘</h1>
+          <p class="page-description" id="page-description">从配置到执行，在一个工作区掌握交易流程。</p>
+        </div>
+        <div class="status-indicator" id="status-pill" role="status" aria-live="polite" aria-label="任务运行状态">
           <div class="status-dot-pulse"></div>
           <span id="status-text" class="status-text">初始化中</span>
           <span class="separator">/</span>
@@ -372,8 +383,14 @@
       </header>
 
       <section id="panel-auto" class="panel active">
+        <div class="workspace-intro">
+          <div><span class="section-kicker">OVERVIEW</span><h2>你的交易，从这里开始。</h2><p>配置账号与策略，观测市场，再启动你的交易任务。</p></div>
+          <div class="workspace-symbol" aria-hidden="true"><svg viewBox="0 0 80 80" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="8" y="8" width="40" height="40" rx="4"/><rect x="32" y="32" width="40" height="40" rx="4"/><path d="M20 28h16m-6-6 6 6-6 6M44 52h16m-10-6-6 6 6 6"/></svg></div>
+        </div>
         <div class="control-bar">
+          <div class="control-heading"><span class="section-kicker">TASK CONTROL</span><h2>任务控制</h2><p>运行进度与操作</p></div>
           <div class="control-info">
+            <span class="control-label">当前进度</span>
             <div class="lyric-scroll-viewport" id="step-scroll-viewport">
               <div class="lyric-scroll-track" id="step-scroll-track">
                 <div class="lyric-line" style="opacity:1">等待系统初始化</div>
@@ -381,7 +398,7 @@
             </div>
           </div>
           <div class="control-actions">
-            <button id="btn-quit" class="btn btn-danger-outline" style="margin-right: 12px;">退出程序</button>
+            <button id="btn-quit" class="btn btn-ghost">退出程序</button>
             <button id="btn-stop" class="btn btn-secondary">停止运行</button>
             <button id="btn-observe" class="btn btn-secondary" title="读取 Steam 历史成交和卖单数据，仅记录参考价">仅观测</button>
             <span class="btn-hover-anchor">
@@ -419,6 +436,13 @@
             <button id="btn-paid" class="btn btn-sm btn-primary">已完成支付</button>
           </div>
         </div>
+        <div class="workspace-section-heading"><h2>常用工作区</h2><span>连接配置、执行与复盘</span></div>
+        <div class="workspace-links">
+          <button class="workspace-card" data-open-panel="accounts"><span class="workspace-card-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="8" r="4"/><path d="M4 21v-2a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6v2"/></svg></span><span class="workspace-card-title">账号管理 <span aria-hidden="true">↗</span></span><span class="workspace-card-copy">管理 Steam 账号、验证登录状态与 Cookie。</span><span class="workspace-card-link">管理账号 →</span></button>
+          <button class="workspace-card" data-open-panel="strategies"><span class="workspace-card-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M5 3v18M12 3v18M19 3v18M2 8h6m1 8h6m1-10h6"/></svg></span><span class="workspace-card-title">策略中心 <span aria-hidden="true">↗</span></span><span class="workspace-card-copy">组装购入与出售模块，模拟并确认启用策略。</span><span class="workspace-card-link">编辑策略 →</span></button>
+          <button class="workspace-card" data-open-panel="debug"><span class="workspace-card-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h4"/></svg></span><span class="workspace-card-title">运行报告 <span aria-hidden="true">↗</span></span><span class="workspace-card-copy">查看饰品筛选结果、关联网络请求与运行日志。</span><span class="workspace-card-link">查看报告 →</span></button>
+        </div>
+        <div class="workspace-checklist"><div><span class="section-kicker">BEFORE YOU START</span><h2>启动前，确认这三件事</h2></div><ol><li><span>01</span><div><strong>验证账号</strong><p>在账号管理中检查登录信息。</p></div></li><li><span>02</span><div><strong>确认策略</strong><p>检查筛选条件与交易参数。</p></div></li><li><span>03</span><div><strong>保存配置</strong><p>在系统设置中保存所需凭据。</p></div></li></ol><button class="btn btn-secondary" data-open-panel="settings">打开系统设置 →</button></div>
       </section>
 
       <section id="panel-purchases" class="panel">
@@ -454,7 +478,7 @@
                   <circle cx="11" cy="11" r="7"></circle>
                   <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
                 </svg>
-                <input id="accounts-search" type="text" placeholder="搜索用户名 / Steam ID" />
+                <input id="accounts-search" type="text" placeholder="搜索用户名 / Steam ID" aria-label="搜索账号" />
               </div>
               <button id="btn-add-account" class="btn btn-primary btn-sm">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
@@ -742,7 +766,7 @@
               <div class="field-row">
                 <div class="field">
                   <label for="cfg-target_sender">指令发件人(含昵称)</label>
-                  <input type="text" id="cfg-target_sender" placeholder="VexedWilson" title="邮件发件人需包含此字符串" />
+                  <input type="text" id="cfg-target_sender" placeholder="付款通知发件人" title="邮件发件人需包含此字符串" />
                 </div>
                 <div class="field">
                   <label for="cfg-allowed_sender">允许的发件人邮箱</label>
@@ -825,7 +849,7 @@
           <div class="steam-token-glow"></div>
           <div class="steam-token-card">
             <h2 class="steam-token-title">Steam 令牌</h2>
-            <div id="steam-token-circle" class="steam-token-circle">
+            <div id="steam-token-circle" class="steam-token-circle" role="button" tabindex="0" aria-label="显示或复制 Steam 令牌">
               <svg class="steam-token-ring" viewBox="0 0 260 260">
                 <defs>
                   <linearGradient id="steam-ring-gradient" x1="0%" y1="0%" x2="100%" y2="0%">
@@ -1075,7 +1099,22 @@
         <div class="console-wrapper">
           <div class="console-toolbar">
             <div class="console-filters">
-              <input id="log-search" type="text" placeholder="搜索日志关键词..." />
+              <select id="log-layer" aria-label="报告类型">
+                <option value="item">饰品报告</option>
+                <option value="network">网络报告</option>
+                <option value="system">运行日志</option>
+                <option value="all">全部记录</option>
+              </select>
+              <select id="log-outcome" aria-label="报告结果">
+                <option value="all">所有结果</option>
+                <option value="pass">通过</option>
+                <option value="reject">拒绝</option>
+                <option value="wait">暂缓</option>
+                <option value="observe">仅观测</option>
+                <option value="success">读取成功</option>
+                <option value="failed">读取失败</option>
+              </select>
+              <input id="log-search" type="text" placeholder="搜索饰品、原因或请求编号..." aria-label="搜索报告" />
               <select id="log-level">
                 <option value="all">所有级别</option>
                 <option value="info">Info</option>
@@ -1134,7 +1173,7 @@
               </button>
             </div>
           </div>
-          <pre id="log-output" class="console-body" data-last-index="0"></pre>
+          <div id="log-output" class="console-body" data-last-index="0"></div>
         </div>
       </section>
 
@@ -1205,7 +1244,7 @@
       <!-- 步骤 0：欢迎 -->
       <div class="wizard-step active" id="wizard-step-0">
         <div class="wizard-icon">🚀</div>
-        <h3 class="wizard-title">欢迎使用 AetherSwap</h3>
+        <h3 class="wizard-title">欢迎使用 SteamSwap</h3>
         <p class="wizard-desc">检测到您尚未完成基础配置，建议按向导快速填写关键参数。全程约需 2 分钟，也可跳过后在「设置」面板手动配置。</p>
         <div class="wizard-steps-preview">
           <div class="wizard-preview-item"><span class="wizard-preview-num">1</span>Steam 令牌密钥</div>
@@ -1260,7 +1299,7 @@
       <div class="wizard-step" id="wizard-step-3">
         <div class="wizard-icon">🛒</div>
         <h3 class="wizard-title">Buff 账号登录</h3>
-        <p class="wizard-desc">AetherSwap 需要您的 Buff Cookie 来读取市场数据和下单。桌面环境可打开浏览器登录；无桌面服务器可手动填写 Cookie。</p>
+        <p class="wizard-desc">SteamSwap 需要您的 Buff Cookie 来读取市场数据和下单。桌面环境可打开浏览器登录；无桌面服务器可手动填写 Cookie。</p>
         <div class="wizard-buff-actions">
           <button type="button" id="wiz-buff-open" class="btn btn-secondary">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">

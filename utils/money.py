@@ -105,7 +105,7 @@ def _load_exchange_rates() -> Dict[str, float]:
 def apply_currency(
     prices: List[float],
     currency: Optional[str],
-    usd_to_cny_rate: float = USD_TO_CNY_DEFAULT,
+    usd_to_cny_rate: Optional[float] = None,
     rate_map: Optional[Dict[str, float]] = None,
 ) -> Tuple[List[float], str]:
     code = (currency or CURRENCY_CNY).strip().upper()
@@ -113,7 +113,11 @@ def apply_currency(
         return prices, CURRENCY_CNY
     rates = rate_map if rate_map is not None else _load_exchange_rates()
     if code == CURRENCY_USD:
-        rate = rates.get(CURRENCY_USD) or usd_to_cny_rate
+        rate = rates.get(CURRENCY_USD)
+        if not rate and usd_to_cny_rate is not None:
+            rate = usd_to_cny_rate
+        if not rate:
+            return prices, code
         return [p * rate for p in prices], CURRENCY_CNY
     rate = rates.get(code)
     if rate:

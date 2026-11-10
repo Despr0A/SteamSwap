@@ -175,10 +175,10 @@ BUILTIN_MODULES: Dict[str, Dict[str, Any]] = {
     },
     "guard.safe_purchase_limit": {
         "id": "guard.safe_purchase_limit",
-        "name": "安全采购上限（兼容）",
+        "name": "单品采购数量限制",
         "category": "guard.legacy",
         "strategy_types": ["buy"],
-        "description": "旧版合并模块，仅用于兼容已保存策略；新策略请使用拆分后的采购上限模块。",
+        "description": "旧版合并模块，仅用于兼容已保存策略；限制单个饰品本轮采购数量，新策略请使用拆分后的数量限制模块。",
         "hidden": True,
         "params_schema": {
             "safe_purchase_hard_qty_cap": {"type": "integer", "min": 1, "default": 50, "label": "硬上限"},
@@ -336,7 +336,7 @@ SYSTEM_STRATEGIES: List[Dict[str, Any]] = [
         "strategy_type": "buy",
         "origin": "system",
         "readonly": True,
-        "description": "复刻当前自动购入流程：候选过滤、实时价格、折扣、卖压、稳定性和安全采购保护。",
+        "description": "复刻当前自动购入流程：候选过滤、实时价格、折扣、卖压、稳定性和单品采购数量限制。",
         "steps": [
             {"module_id": "buy.steamdt_top_n", "enabled": True, "params": {}},
             {"module_id": "buy.exclude_keywords", "enabled": True, "params": {}},

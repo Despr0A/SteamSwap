@@ -27,9 +27,16 @@ The visible message includes a short explanation and named fields:
 `GET /api/log` entries may additionally contain a `diagnostic` object. This
 contains the safe redirect chain, exception causes (including Windows error
 numbers), a stack of file/line/function frames, per-attempt identifiers, and
-failure counts by code. The UI message remains plain text. Existing log export
-includes category, flow ID, and the full diagnostic JSON. The existing in-memory
-log retains its most recent 500 entries; export before older entries roll off.
+failure counts by code. Candidate processing also emits a structured `report`
+object in two categories: `item_report` for one item's decision chain and
+`network_report` for the Steam/BUFF read operation used by that decision.
+The UI defaults to expandable item reports with result filters, price formulas,
+data age and source. Each item links to its network reports through `report_id`.
+History reads distinguish memory/database reuse from refreshes; calling the
+history service does not by itself imply an HTTP request. Both report and
+diagnostic JSON survive polling, download, export and restoration. The existing
+in-memory log retains its most recent 500 entries; export before older entries
+roll off.
 
 ## Main categories
 

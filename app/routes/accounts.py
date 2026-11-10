@@ -76,11 +76,24 @@ def api_set_current_account(account_id: str):
 def api_verify_account(account_id: str):
     result = verify_steam_auto_login(account_id)
     if result.get("ok"):
-        sync_result = refresh_account_region_currency(account_id)
+        # Verification only establishes the login session.  New accounts may
+        # not have a Steam wallet yet, so do not make wallet currency a
+        # prerequisite for accepting the account into the history pool.
+        try:
+            sync_result = refresh_account_region_currency(
+                account_id,
+                require_wallet=False,
+            )
+        except TypeError as exc:
+            # Keep compatibility with small test/integration adapters that
+            # still expose the old single-argument helper.
+            if "require_wallet" not in str(exc):
+                raise
+            sync_result = refresh_account_region_currency(account_id)
         result["region_sync"] = sync_result
         if sync_result.get("ok"):
             log(
-                "account_verify: 结算币种确认成功 "
+                "account_verify: 登录验证成功，跳过钱包币种检查 "
                 f"account_id={account_id} "
                 f"currency={sync_result.get('currency_code')} "
                 f"derived_region={sync_result.get('region_code')}",

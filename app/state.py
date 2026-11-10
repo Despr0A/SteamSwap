@@ -110,7 +110,15 @@ class State:
             self._buff_verification_reason = reason if value else ""
             if value:
                 self._buff_auth_expired = False
-    def log(self, msg: str, level: str = "info", category: str = "", flow_id: str = "", diagnostic: Optional[dict] = None) -> None:
+    def log(
+        self,
+        msg: str,
+        level: str = "info",
+        category: str = "",
+        flow_id: str = "",
+        diagnostic: Optional[dict] = None,
+        report: Optional[dict] = None,
+    ) -> None:
         with self._lock:
             self._log_seq += 1
             self._log.append({
@@ -121,6 +129,7 @@ class State:
                 "category": category or "",
                 "flow_id": flow_id or "",
                 **({"diagnostic": redact(diagnostic)} if diagnostic else {}),
+                **({"report": redact(report)} if report else {}),
             })
     def get_log(self, since_idx: int = 0) -> list:
         with self._lock:
@@ -203,6 +212,7 @@ class State:
                         "category": e.get("category", ""),
                         "flow_id": e.get("flow_id", ""),
                         **({"diagnostic": redact(e["diagnostic"])} if e.get("diagnostic") else {}),
+                        **({"report": redact(e["report"])} if e.get("report") else {}),
                     })
             if self._log:
                 self._log_seq = max(e.get("id", 0) for e in self._log)
@@ -228,8 +238,15 @@ def set_buff_auth_expired(value: bool) -> None:
     get_state().set_buff_auth_expired(value)
 def set_buff_verification_required(value: bool, reason: str = "") -> None:
     get_state().set_buff_verification_required(value, reason=reason)
-def log(msg: str, level: str = "info", category: str = "", flow_id: str = "", diagnostic: Optional[dict] = None) -> None:
-    get_state().log(msg, level, category, flow_id, diagnostic)
+def log(
+    msg: str,
+    level: str = "info",
+    category: str = "",
+    flow_id: str = "",
+    diagnostic: Optional[dict] = None,
+    report: Optional[dict] = None,
+) -> None:
+    get_state().log(msg, level, category, flow_id, diagnostic, report)
 def get_log(since_idx: int = 0) -> list:
     return get_state().get_log(since_idx)
 def set_pending_payment(p: Optional[dict]) -> None:

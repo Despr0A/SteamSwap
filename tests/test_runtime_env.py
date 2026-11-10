@@ -19,7 +19,7 @@ def test_server_requirements_omit_desktop_webview_dependency():
 def test_legacy_app_main_exposes_fastapi_app_lazily():
     import app.main as main
 
-    assert getattr(main, "app").title == "aetherswap"
+    assert getattr(main, "app").title == "SteamSwap"
 
 
 def test_auto_linux_without_display_uses_server_mode():
@@ -32,7 +32,7 @@ def test_auto_linux_without_display_uses_server_mode():
 
 
 def test_no_display_stays_effectively_headless_even_if_env_disables_headless():
-    profile = get_runtime_profile(env={"AETHERSWAP_HEADLESS": "0"}, platform_name="linux")
+    profile = get_runtime_profile(env={"STEAMSWAP_HEADLESS": "0"}, platform_name="linux")
 
     assert profile.mode == "server"
     assert profile.headless is True
@@ -50,7 +50,7 @@ def test_auto_linux_with_display_uses_desktop_mode():
 
 def test_open_browser_requires_explicit_opt_in():
     profile = get_runtime_profile(
-        env={"AETHERSWAP_OPEN_BROWSER": "1"},
+        env={"STEAMSWAP_OPEN_BROWSER": "1"},
         platform_name="win32",
     )
 
@@ -61,7 +61,7 @@ def test_open_browser_requires_explicit_opt_in():
 def test_no_ui_cli_flag_disables_browser_opening(monkeypatch):
     from app.main import _apply_cli_overrides, _parse_cli_args
 
-    monkeypatch.delenv("AETHERSWAP_OPEN_BROWSER", raising=False)
+    monkeypatch.delenv("STEAMSWAP_OPEN_BROWSER", raising=False)
     args = _parse_cli_args(
         [
             "--no-ui",
@@ -78,11 +78,11 @@ def test_no_ui_cli_flag_disables_browser_opening(monkeypatch):
     assert args.start_pipeline is True
     assert args.observe_reference_prices is True
     assert get_runtime_profile(platform_name="win32").open_browser is False
-    assert get_bind_host(env={"AETHERSWAP_HOST": "127.0.0.1"}) == "127.0.0.1"
+    assert get_bind_host(env={"STEAMSWAP_HOST": "127.0.0.1"}) == "127.0.0.1"
 
 
 def test_env_overrides_host_port_and_local_url():
-    env = {"AETHERSWAP_MODE": "server", "AETHERSWAP_HOST": "127.0.0.1", "AETHERSWAP_PORT": "3000"}
+    env = {"STEAMSWAP_MODE": "server", "STEAMSWAP_HOST": "127.0.0.1", "STEAMSWAP_PORT": "3000"}
     profile = get_runtime_profile(env=env, platform_name="linux")
 
     assert profile.mode == "server"

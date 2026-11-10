@@ -1,467 +1,278 @@
-<div align="center">
+# SteamSwap
 
+SteamSwap 是一款面向 CS2 饰品交易的本地工具，帮助你筛选 BUFF 饰品、比较 Steam 参考价格、管理购买任务，并查看每件饰品的筛选结果与付款记录。通过浏览器即可完成账号、策略和通知配置。
 
-<h1>⚗️ SteamSwap</h1>
+- **行情筛选**：结合 SteamDT 候选、Steam 历史成交与实时卖单，筛选价格和成交量符合条件的饰品。
+- **策略管理**：调整购入、出售规则，复制预设创建自己的策略，支持导入和导出。
+- **购买辅助**：生成支付宝或微信付款链接，支持网页、终端和邮件确认。
+- **过程追踪**：查看饰品报告、关联网络请求、已支付记录和运行日志。
+- **账号与通知**：管理多个 Steam 账号，查看动态令牌，配置代理、桌面通知和 PushPlus。
 
-<p><strong>全自动、零代码配置的 Steam 低价余额助手</strong><br>跨区购买 · 行情分析 · 数据复盘 · 全可视化控制台</p>
+[安装启动](#安装启动) · [首次配置](#首次配置) · [开始使用](#开始使用) · [调整策略](#调整策略) · [通知与代理](#通知与代理) · [备份与迁移](#备份与迁移) · [命令行与服务器](#命令行与服务器) · [常见问题](#常见问题)
 
-[![Version](https://img.shields.io/badge/version-v0.1.0--beta-orange)](https://github.com)
-[![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-blue?logo=python&logoColor=white)](https://python.org)
-[![FastAPI](https://img.shields.io/badge/Backend-FastAPI-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com)
-[![License: GPL v3](https://img.shields.io/badge/License-GPL%20v3-blue.svg)](LICENSE)
-[![Platform](https://img.shields.io/badge/Platform-Windows%20%7C%20Linux-lightgrey?logo=linux)](https://github.com)
-[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com)
-
-<p>
-  <a href="#-核心功能">功能亮点</a> ·
-  <a href="#-快速开始">快速开始</a> ·
-  <a href="#-策略中心使用教程">策略中心</a> ·
-  <a href="#-工作原理">工作原理</a> ·
-  <a href="#%EF%B8%8F-进阶配置">进阶配置</a> ·
-  <a href="#-常见问题-faq">常见问题</a> ·
-  <a href="#-参与贡献">参与贡献</a> ·
-  <a href="#-免责声明">免责声明</a>
-</p>
-
-<br>
-
-<br><br>
-
-> 从选品→下单→上架→确认，全程 **99% 无人工干预**；  
-> 每笔交易的成本与收益被永久记录，折扣率与盈亏一目了然；  
-> 选品与定价基于 **变异系数(CV)、趋势拟合(R²)** 等数学模型，而非靠感觉。
-
-</div>
-
-
-SteamSwap 基于 [AetherSwap](https://github.com/VexedWilosn/AetherSwap) 进行个人修改与持续维护，保留 Steam 饰品购买的核心流程。
-
-本次更新详见 [2026-10-11 改动说明](docs/CHANGELOG_2026-10-11.md)，错误排查详见 [诊断文档](docs/ERROR_DIAGNOSTICS.md)。
-
-## 🚀 快速开始
+## 安装启动
 
 ### 环境要求
 
-- **Python**: 3.10 或更高版本（[下载](https://www.python.org/downloads/)）
-- **操作系统**: Windows 10/11（推荐）、带桌面环境的 Linux，或无桌面 Linux 服务器
-- **网络**: 需要能够正常访问 Steam 社区
+- Python 3.11。
+- Windows 桌面或 Linux 服务器。
+- 能够访问 Steam 社区、BUFF 和 SteamDT 的网络。
+- 用于交易的 Steam、BUFF 账号。
 
-> [!IMPORTANT]
-> **国内用户必读：** 由于网络限制，运行前请务必开启 **Steam 加速器**（如 [Steam++/Watt Toolkit](https://steampp.net/)、加速器等），否则程序将无法正常连接 Steam 社区，导致登录失败或行情数据拉取超时。
+### 安装
 
-### 安装步骤
-
-**第 1 步：克隆项目**
-
-```bash
-git clone https://github.com/Despr0A/SteamSwap.git
-cd SteamSwap
-```
-
-**第 2 步：安装依赖**
-
-
-```bash
-conda create -n aether python=3.10 -y
-
-# 二选一：桌面/本地运行
-pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
-
-# 二选一：无桌面 Linux 服务器（避免安装 pywebview）
-pip install -r requirements-server.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
-
-conda activate aether
-
-# 安装 Playwright 浏览器（Linux 服务器推荐 --with-deps）
-python -m playwright install chromium
-# Linux 服务器：
-python -m playwright install --with-deps chromium
-```
-
-**第 3 步：启动程序**
-
-```bash
-python run.py
-```
-默认地址 http://127.0.0.1:28472
-
-程序默认只启动服务，不会自动弹出 Web 控制台。请访问启动日志中的本地地址完成配置；需要自动打开窗口时，设置 `AETHERSWAP_OPEN_BROWSER=1`。
+下面以 Windows PowerShell 为例。推荐使用名为 `steamswap` 的 Conda 环境；已有该环境时直接激活：
 
 ```powershell
-python -m pip install -r requirements.txt
+conda activate steamswap
 ```
 
+首次安装、尚未准备环境时，可先运行 `conda create -n steamswap python=3.11`，再激活环境。使用其他 Python 虚拟环境时，也请先激活，再执行安装命令。
 
-无前端运行并自动启动买入流水线：
-
-```bash
-python run.py --no-ui --start-pipeline
+```powershell
+git clone https://github.com/Despr0A/SteamSwap.git
+Set-Location SteamSwap
+python -m pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
+python -m playwright install chromium
 ```
 
-这是与默认 `python run.py` 相同的项目入口，只是额外指定不打开前端并直接启动买入流水线。`python -m app --no-ui --start-pipeline` 与其等价。
+### 启动
 
-只初始化参考价、不进行交易时，可使用一次性观测模式：
+```powershell
+python run.py
+```
 
-```bash
+首次运行时，在终端阅读提示并确认免责声明，然后打开 [http://127.0.0.1:28472](http://127.0.0.1:28472)。
+
+程序默认不弹出窗口。运行期间保持终端开启；日常操作都在网页中完成。
+
+## 首次配置
+
+首次打开控制台可跟随引导填写，也可在左侧菜单中逐项配置。
+
+### 1. 设置 Steam 令牌
+
+进入 **系统设置 → Steam 令牌**：
+
+| 字段 | 用途 |
+| --- | --- |
+| `shared_secret` | 生成 Steam Guard 动态验证码，供自动登录使用 |
+| `identity_secret` | 自动确认上架时使用 |
+| `device_id` | 自动确认所需的设备标识 |
+
+这些字段是令牌密钥和设备信息，不是手机上显示的六位验证码。需要自动确认上架时，填写对应信息并开启“自动确认上架”；否则保持关闭。
+
+### 2. 添加 Steam 账号
+
+进入 **账号管理**，点击“添加”，填写账号信息并保存。选择要使用的账号，设为当前账号，再点击“验证”完成登录。
+
+可以保存多个账号，交易时使用当前账号。账号未设置钱包不影响登录验证和历史行情读取；出售前需要能够读取钱包币种。
+
+### 3. 登录 BUFF
+
+按引导点击 BUFF 登录按钮，在弹出的浏览器中完成登录，再返回控制台确认。无桌面服务器按页面提示填写 Cookie。
+
+进入 **系统设置 → Buff 支付**，选择支付宝或微信；订单实际可用的支付方式以平台返回为准。
+
+### 4. 检查选品和购买设置
+
+- **系统设置 → SteamDT 数据源**：设置价格范围、最低日成交数和排序方式，采购平台使用 BUFF。
+- **策略中心 → 购入策略**：检查目标金额、最高折扣和单品采购数量等参数。
+- **系统设置 → 启动时间限制**：按需设置允许执行任务的时段。
+
+填写完成后保存。通知和代理可稍后配置。
+
+## 开始使用
+
+### 先查看行情
+
+在 **仪表盘** 点击 **“仅观测”**。程序会读取候选饰品的历史成交和卖单数据，记录参考价，不创建新的 BUFF 购买订单。
+
+进入 **运行日志 → 饰品报告**，展开一件饰品，查看参考价、成本率、数据时间和检查结果。点击“查看本次网络报告”，可以继续查看关联请求。
+
+观测会持续运行，需要结束时点击“停止运行”。已有购买记录的后台收货和在售检查仍会按各自条件执行。
+
+### 启动购买
+
+1. 结束观测，确认购入策略和目标金额。
+2. 在仪表盘点击 **“启动任务”**。
+3. 等待程序筛选候选并检查价格；没有合适饰品时会等待下一轮。
+4. 出现“等待支付”后，打开付款链接完成支付。
+5. 回到网页点击 **“已完成支付”**，程序继续处理后续任务。
+
+付款需要你自行完成。默认确认等待时间为 **5 分钟**，可在通知设置中调整。也可以在启动程序的交互式终端中输入 `y` 并回车确认，输入 `n` 取消等待；网页确认后无需重复输入。
+
+取消等待、停止任务或超时不会撤销已完成的付款。如果已经付款但错过确认时间，请先到 BUFF 核对订单。
+
+### 理解目标金额与成本率
+
+界面中的 **“目标余额”按本次任务累计确认的买入金额计算**。例如设为 100，表示本次采购金额目标为 100 元；它不表示最终会获得 100 元 Steam 余额。重新启动任务会重新累计。
+
+成本率用于比较买入成本与预计 Steam 余额：
+
+```text
+成本率 = BUFF 买入价 × 1.15 ÷ Steam 参考价
+```
+
+例如买入价为 8 元、参考价为 10 元，成本率为 0.92。设置最高折扣为 0.9 时，该候选不满足条件。`1.15` 是手续费估算系数，实际收入以最终成交为准。
+
+### 查看记录、停止与退出
+
+- **已支付饰品**：查看已确认付款的饰品、买入价、参考价、购买时间和成本率。
+- **停止运行**：停止当前任务，保留网页服务。
+- **退出程序**：关闭整个程序。
+
+仅关闭网页不会停止后台服务。修改购入参数后，应结束当前任务再重新启动，使新参数生效。
+
+### 收货与出售
+
+程序会后台检查待收货订单并更新购买记录。出售策略默认 **“暂停自动出售”**，可在策略中心查看立即出售、趋势等待、比例保护等选项。
+
+新收货饰品的首次上架目前需要在 Steam 中自行操作；自动补挂用于程序已记录的在售饰品确认售出后的后续处理。需要自动确认上架时，还应在系统设置中启用并填写对应令牌信息。
+
+## 调整策略
+
+进入 **策略中心**，选择“购入策略”或“出售策略”。
+
+1. 只调整参数时，直接编辑系统预设并保存。
+2. 需要增删模块、调整顺序或启用状态时，先复制为自定义策略。
+3. 修改参数，点击“模拟运行”查看模块结果。
+4. 保存策略，点击“启用”，确认与当前策略的差异。
+
+系统会检查模块依赖、顺序、互斥关系和参数范围。系统预设支持恢复默认；自定义策略可导入、导出和删除。
+
+**模拟运行使用样例数据**，适合检查策略结构和条件，不会真实下单，也不等同于历史行情回测。
+
+常用参数可以这样理解：
+
+| 参数 | 调整作用 |
+| --- | --- |
+| 最高折扣 | 成本率上限，数值越小，价格要求越严格 |
+| 历史回溯天数 | 稳定性分析使用的历史范围 |
+| 波动率阈值（CV） | 数值越小，对价格波动的容忍度越低 |
+| 参考价稳定观测 | 新参考价需要连续观测，价格明显变化时重新等待 |
+| 单品采购数量 | 限制单个饰品本轮采购数量，结合成交量和低价规则判断 |
+| 同名在售数量 | 控制同名饰品同时在售的数量 |
+
+“模块管理”可查看内置模块和可用数据字段，也可导入声明式条件模块。用户模块通过条件表达式判断是否继续，不执行外部 Python 或脚本代码。
+
+## 通知与代理
+
+**Windows 通知**默认开启，在有桌面会话的 Windows 上提示待付款订单。收不到通知时，检查系统通知设置是否允许该应用发送通知。
+
+**PushPlus**可在系统设置中填写 Token，用于接收交易和异常提醒。
+
+**邮件确认**需要填写 IMAP 服务器、邮箱账号、授权码以及匹配的邮件条件。匹配成功邮件后会确认付款；不配置邮箱时，使用网页或终端手动确认即可。邮件确认不能代替实际付款。
+
+**代理池**默认关闭。如果当前网络无法连接 Steam，可在“代理池”页面配置自己的代理或 Webshare，先测试连通性，再启用对应策略。
+
+## 备份与迁移
+
+在 **系统设置** 中点击“导出配置”，下载包含设置、账号、凭证、购买记录和当前日志的 JSON。恢复时选择对应的导入入口并上传备份文件。
+
+备份包含密码、Cookie 或令牌密钥等敏感信息，请妥善保存，不要作为日志附件公开上传。
+
+迁移整套运行数据时：
+
+1. 停止任务，确认待付款订单已经处理完毕，再退出程序。
+2. 备份项目内整个 `config/` 目录。
+3. 在新机器安装程序与依赖，启动前恢复该目录。
+
+网页导出不包含自定义策略、用户模块、行情数据库、浏览器登录资料及订单核对状态；完整迁移应使用目录备份。更换机器后，如提示登录失效，重新登录对应平台。
+
+## 命令行与服务器
+
+已完成配置后，可从命令行直接启动任务：
+
+```powershell
+# 启动参考价观测
 python run.py --no-ui --start-pipeline --observe-reference-prices
+
+# 启动买入任务
+python run.py --no-ui --start-pipeline
+
+# 使用其他本地端口
+python run.py --host 127.0.0.1 --port 28473
 ```
 
-也可在 Web 控制台的“系统设置 → 交易模式”中启用“仅检测价格，不进行交易”；该设置会保存到配置中。观测模式会逐个检测候选的 Steam 参考价并写入参考价库，且在交易层强制阻止创建 BUFF 订单。
-
-待付款订单会显示 Windows 通知中心侧边栏通知，付款链接会输出到该命令运行的终端。在交互式终端中完成付款后，输入 `y` 并按 Enter 即可继续；输入 `n` 并按 Enter 取消本次付款。命令行、邮件确认和 Web 控制台的“已完成支付”按钮共享同一确认结果，任一方式先确认即可继续。Windows 通知默认开启，可在 `notify.windows_toast_enabled` 设为 `false` 关闭。Windows 依赖安装后会优先使用 WinRT 通知 API；通知需要在已登录的 Windows 桌面会话中运行，并确认 Windows 的“通知和操作”设置没有屏蔽 SteamSwap。
-
-#### 本地桌面与服务器模式
-
-`python run.py` 会自动判断运行环境：
-
-- 有桌面环境时进入 **desktop 模式**，绑定 `127.0.0.1:28472`；默认不打开本地窗口/浏览器。
-- 无桌面 Linux 或服务进程中进入 **server 模式**，绑定 `0.0.0.0:28472`，需要用外部浏览器访问。
-- 首次非交互运行时需要先确认免责声明，可在确认已阅读后设置 `AETHERSWAP_AGREE_DISCLAIMER=1`。
-
-
-
-### 引导流程（约 3 分钟）
-
-```
-打开控制台 → 填写手机令牌密钥 → 添加 Steam 账号并验证 → 启动自动任务 🎉
-```
-
-1. 观察首页**「快速开始」**待办卡片，逐项完成配置
-2. 在【系统设置】中填写 `shared_secret`、`identity_secret` 及通知 Token
-3. 在【账号管理】中添加 Steam 账号，点击「验证」自动完成模拟登录
-4. 返回首页，点击**「启动任务」**，坐等余额入账
-
----
-
-## 🧭 策略中心使用教程
-
-策略中心用于管理自动购入和自动出售的交易决策。现在交易相关参数不再混在设置页里，设置页主要保留账号、通知、代理、刷新、系统等全局配置；具体买什么、怎么买、何时卖、如何定价，请进入左侧导航的【策略中心】。
-
-### 1. 三个工作区
-
-顶部可以切换：
-
-- **购入策略**：决定候选饰品如何过滤、如何校验 Buff/Steam 价格、如何做历史稳定性和采购上限保护，最后是否进入 Buff 锁单付款流程。
-- **出售策略**：决定库存饰品如何过滤、同名在售上限、Steam 定价、趋势等待、利润比例保护，最后是否自动上架。
-- **模块管理**：查看内置模块和用户导入模块；也能查看声明式模块可读取的数据字段、可用比较操作符和运行阶段。
-
-### 2. 系统策略和自定义策略
-
-- 系统预设策略的模块结构只读，保证默认流程始终可恢复；模块参数可以直接编辑并保存。
-- 系统预设策略支持“恢复默认”，会把所有模块参数重置为内置默认值并保存到配置。
-- 如果想调整系统策略的模块增删、启用状态或排序，请先点击复制，生成自定义策略后再编辑。
-- 自定义策略可以保存、删除、导入、导出和启用。
-- 启用策略前会显示与当前启用策略的差异摘要；启用自定义策略前请先使用“模拟运行”确认模块结果。
-
-### 3. 模块编辑规则
-
-策略由一串模块组成。每个模块都有类型、参数、依赖和互斥限制。
-
-- 固定模块不能删除，避免用户把流程删到无法运行。
-- 非固定模块支持添加、删除、启用/禁用和长按拖拽排序。
-- 出售策略的基础库存校验和上架动作会固定保留；定价核心可以在“价格墙定价”和“墙+断层一体定价”之间替换，添加新定价核心时会自动移除互斥模块。
-- 参数可以直接在右侧/下方参数面板编辑，保存时会校验类型、范围和枚举值。
-- 模块数量有限制；重复添加、依赖缺失、顺序错误、互斥冲突都会被阻止。
-- 模拟运行是 dry-run，不会触发 Buff 锁单、付款等待或 Steam 上架。
-
-### 4. 用户自定义模块
-
-当前版本开放的是**安全声明式模块**，而不是任意代码执行。
-
-声明式模块 manifest 示例：
-
-```json
-{
-  "id": "custom.sell.price_floor",
-  "name": "出售底价保护",
-  "module_kind": "declarative",
-  "strategy_types": ["sell"],
-  "uses_modules": ["pricing.steam_wall_price"],
-  "stage": "sell.listing_guard",
-  "conditions": [
-    {
-      "left": "outputs.pricing.steam_wall_price.list_price",
-      "op": "gte",
-      "value": 15
-    }
-  ],
-  "fail_status": "reject",
-  "message": "上架价低于自定义底价，跳过出售"
-}
-```
-
-常用字段说明：
-
-| 字段 | 说明 |
-|---|---|
-| `id` | 模块唯一 ID，不能覆盖内置模块 |
-| `module_kind` | 当前可启用值为 `declarative` |
-| `strategy_types` | `buy` 或 `sell`，也可以同时声明 |
-| `stage` | 运行阶段；购入为 `buy.candidate_guard`，出售为 `sell.listing_guard` |
-| `uses_modules` | 声明依赖哪些前置模块输出，系统会校验顺序 |
-| `conditions` | 条件列表，支持 `eq/ne/gt/gte/lt/lte/contains/in/exists/between` 等操作 |
-| `fail_status` | 条件不满足时返回 `reject`、`wait`、`pass` 或 `error` |
-| `message` | 模拟结果和日志中显示的原因 |
-
-声明式模块能读取 `item`、`buy_record`、`listing`、`config` 和前置模块 `outputs`。例如：
-
-- `item.daily_volume`
-- `item.min_price`
-- `listing.list_price`
-- `buy_record.price`
-- `outputs.buy.steam_sell_depth.estimated_ratio`
-- `outputs.pricing.steam_wall_price.list_price`
-
-带有 `code`、`source`、`entrypoint`、`command` 等字段的外部代码模块只会登记展示，不会执行，也不能加入启用链。这是为了避免用户代码直接影响锁单、付款、上架等高风险动作。
-
-### 5. 推荐使用流程
-
-1. 在【策略中心】选择购入或出售策略。
-2. 如果只改系统策略参数，可以直接编辑并保存；如果要调整模块顺序、启用状态或增删模块，请先复制为自定义策略。
-3. 调整模块参数，或在自定义策略中调整模块顺序和启用状态。
-4. 点击“模拟运行”，查看每个模块的通过、拒绝、等待、动作跳过原因。
-5. 确认没有未知模块、禁用模块或依赖错误后保存。
-6. 启用策略，并小范围观察真实日志。
-
----
-
-## ⚙️ 工作原理
-
-SteamSwap 由两条后台 Pipeline 协同驱动：
-
-### 采买 Pipeline
-
-```
-SteamDT 行情接口 → 折扣筛选 → 稳定性分析(CV/R²) → 防呆校验 → Buff 自动下单
-```
-
-1. **实时选品**：对接 SteamDT 接口，拉取综合折扣最优的饰品列表
-2. **稳定性过滤**：请求 Steam 历史价格数据，计算 `CV`（变异系数）与 `R²`（趋势拟合度），自动剔除高波动品
-3. **安全下单**：验证每日限购数量、最低折扣等防呆条件后，在 Buff 自动模拟创建订单
-
-> **支付方式说明**：当前版本仅支持通过 **微信支付** 完成购买结账。支付宝等更多支付方式正在规划中，欢迎关注后续更新。
-
-### 出售 & 数据沉淀 Pipeline
-
-```
-库存监听 → 获取 Steam 寄售深度 → 自动上架 → 令牌签名确认 → 交易数据入库
-```
-
-1. **库存监听**：智能检测 Steam 新入库饰品，自动触发上架流程
-2. **令牌无感确认**：使用 `identity_secret` 自动签署 Steam 商品上架二次确认
-3. **数据沉淀**：订单完成后永久记录进销存信息，精确计算每笔余额的实际折损比率
-
----
-
-## 🔧 进阶配置
-
-账号、通知、代理、刷新、系统等全局参数可在 Web 控制台的【系统设置】中实时调整，**修改立即生效，无需重启**。购入/出售决策相关参数请在【策略中心】中通过模块参数管理。
-
-### 常用参数说明
-
-| 参数 | 默认值 | 说明 |
-|---|---|---|
-| `stability.days` | `30` | 历史价格回溯天数，天数越长分析越稳健 |
-| `stability.cv_threshold` | `0.05` | 波动率上限，调高可买入更多品类（风险同步上升） |
-| `stability.r2_threshold` | `0.7` | 趋势拟合度下限，调低可接受更多震荡走势品 |
-| `pipeline.max_daily_buy` | - | 每日最大购买金额上限，用于资金风控 |
-| `strategies.active_buy_strategy_id` | `system.buy.default` | 当前启用的购入策略 ID |
-| `strategies.active_sell_strategy_id` | 自动兼容旧配置 | 当前启用的出售策略 ID |
-| `pipeline.sell_strategy` | `4` | 旧版出售策略兼容字段；新版本建议在【策略中心】切换出售策略 |
-| `pipeline.reference_price_guard_enabled` | `true` | 新饰品首次获得 Steam 参考价时先观望，确认稳定后才允许交易 |
-| `pipeline.reference_price_max_change_ratio` | `0.15` | 相邻参考价允许的最大变化比例；超过后重新观望 |
-| `pipeline.reference_price_required_observations` | `2` | 允许交易前所需的连续稳定参考价观测次数 |
-| `pipeline.reference_price_observation_only` | `false` | 只检测并记录 Steam 参考价，强制禁止创建 BUFF 订单，用于初始化参考价 |
-| `proxy_pool` | - | 自定义代理列表，留空则使用内置 Webshare 自动轮换 |
-
-> **保守策略提示**：默认策略极度保守（宁少赚不亏本）。若想提高买入频率，建议复制系统购入策略后，在【策略中心】调整历史稳定性、最高折扣、卖压保护等模块参数，并先模拟运行。
-
-### 📩 自动化配置：关于“邮箱确认”
-
-在程序的自动抢购与下单流程中，支付完成后的确认环节分为两种模式。这取决于你是否在【系统设置】中配置了邮箱（IMAP）信息：
-
-- **自动化（配置了邮箱）：** 系统在生成支付链接后，如果你扫码完成了付款，交易平台通常会发送一封通知邮件（如含“已确认成功付款”的字样）。系统通过 IMAP 持续监听你的收件箱，一旦捕捉到付款成功的邮件，即可**自动流转**到后续的“提取并核销饰品、提醒卖家发货”等环节。
-- **纯手动（未配置或留空）：** 如果你不填写 `email_user` 或 `email_pass`，程序**不会报错或崩溃**，而是自动降级为纯手动确认模式。此时页面和后台日志将进入等待倒计时，你需要**在 5 分钟（即默认的 `email_timeout_seconds=300`）内手动在界面上点击确认已支付**。如果完成付款但未在 5 分钟内给予系统确认指令，系统会将其视为订单超时并跳过该饰品。
-
-> **💡 建议：** 如果你追求尽可能全程挂机和无感体验，建议配置一个专门接收付款通知的邮箱（如开启 IMAP 的 QQ 邮箱 / 网易邮箱等），这将带给你最流畅的半自动化交易流转。
-
----
-
-## 🏗 项目结构
-
-```
-SteamSwap/
-├── app/                   # FastAPI 后端核心
-│   ├── api.py             # FastAPI/ASGI 应用实例与路由注册
-│   ├── main.py            # 桌面 / 服务器运行启动器
-│   ├── runtime_env.py     # 桌面/服务器模式自动判断
-│   ├── strategy_engine.py # 策略中心、模块校验、模拟运行与运行时接入
-│   ├── pipeline_steps.py  # 采买 / 出售 Pipeline 逻辑
-│   ├── database.py        # SQLModel ORM & 数据库操作
-│   ├── routes/            # FastAPI 路由，包含策略中心 API
-│   └── services/          # 后台任务队列与调度
-├── buff/                  # Buff 平台接口封装
-├── steam/                 # Steam API & Playwright 自动化
-├── steamdt/               # SteamDT 行情数据接口
-├── utils/                 # 公共工具（代理、推送、配置等）
-├── web/                   # 前端静态文件（HTML/JS/CSS）
-├── tests/                 # 单元测试套件
-├── run.py                 # 一键启动入口
-├── requirements.txt       # 桌面/本地运行依赖清单
-└── requirements-server.txt # 无桌面服务器依赖清单
-```
-
----
-
-## 🧪 运行测试
-
-```bash
-# 运行全部单元测试
-pytest -q
-
-# 运行策略中心专项测试
-pytest tests/test_strategies.py -q
-
-# 前端脚本语法检查
-node --check web/js/strategies.js web/js/main.js web/js/utils.js
-```
-
----
-
-## 💡 常见问题 FAQ
+`--no-ui` 表示不自动打开窗口，网页仍然可以访问。命令行观测参数只影响本次买入任务，不保存为默认设置。
 
 <details>
-<summary><b>Q：报错获取不到历史数据？</b></summary>
+<summary>无桌面服务器部署</summary>
 
-请检查steam是否完成登录，历史数据获取需要登录信息用于获取。
+安装服务器依赖和浏览器：
 
-</details>
-
-
-<details>
-<summary><b>Q：我只想倒箱子怎么设置？</b></summary>
-
-将销售量过滤参数设置为2000后适当调整参数即可。
-
-</details>
-
-<details>
-<summary><b>Q：启动后控制台窗口打不开？</b></summary>
-
-请确认依赖安装无报错。若为端口占用，可设置 `AETHERSWAP_PORT=其他端口`，或直接使用 `python -m uvicorn app.api:app --host 0.0.0.0 --port 其他端口`。
-
-如果报错类似 `cannot import name 'Sentinel' from 'typing_extensions'`，请升级依赖：
-
-```bash
-python -m pip install --upgrade typing_extensions
-python -m pip install -r requirements.txt
-```
-
-</details>
-
-<details>
-<summary><b>Q：账号登录失败 / Cookie 提取不到？</b></summary>
-
-请确保当前网络（加速器）能够访问 Steam 社区。若自动登录持续失败，可在【账号管理】中手动填入从浏览器获取的 Cookie 作为备用方案。
-
-</details>
-
-<details>
-<summary><b>Q：系统频繁提示"因波动率/斜率放弃购买"？</b></summary>
-
-这是正常的保守行为。若希望增加买入频率，请在设置中将 `cv_threshold` 调至 `0.08`，并降低 `r2_threshold` 至 `0.6` 左右。调整前请充分理解风险。
-
-</details>
-
-<details>
-<summary><b>Q：如何部署到 Linux 服务器？</b></summary>
-
-SteamSwap 的 FastAPI 架构完整支持无头 Linux 环境。直接运行：
-
-```bash
-pip install -r requirements-server.txt
+```text
+python -m pip install -r requirements-server.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
 python -m playwright install --with-deps chromium
-AETHERSWAP_MODE=server AETHERSWAP_AGREE_DISCLAIMER=1 python run.py
+python run.py --host 127.0.0.1 --port 28472
 ```
 
-也可以直接运行 Uvicorn：
+服务器依赖清单不包含桌面窗口组件。登录时按页面提示手动填写 Cookie。
 
-```bash
-python -m uvicorn app.api:app --host 0.0.0.0 --port 28472
-```
+服务默认会自动判断桌面环境。可通过运行环境设置以下变量：
 
-`python run.py` 会自动判断当前环境：有桌面时在 `127.0.0.1` 启动服务但默认不打开窗口；无桌面 Linux/服务器环境则进入服务器模式并监听 `0.0.0.0:28472`。可通过 `AETHERSWAP_MODE=server|desktop`、`AETHERSWAP_HOST`、`AETHERSWAP_PORT` 覆盖运行方式，或设置 `AETHERSWAP_OPEN_BROWSER=1` 自动打开窗口；首次以非交互服务运行时，确认已阅读免责声明后可设置 `AETHERSWAP_AGREE_DISCLAIMER=1`。
+| 环境变量 | 用途 |
+| --- | --- |
+| `STEAMSWAP_MODE` | `server` 为服务器模式，`desktop` 为桌面模式 |
+| `STEAMSWAP_HOST` | 监听地址 |
+| `STEAMSWAP_PORT` | 监听端口，默认 28472 |
+| `STEAMSWAP_OPEN_BROWSER` | 设置为 `1`，在桌面启动时自动打开窗口 |
+| `STEAMSWAP_MANUAL_LOGIN_ONLY` | 设置为 `1`，使用手动 Cookie 登录 |
+| `STEAMSWAP_AGREE_DISCLAIMER` | 阅读并同意免责声明后设为 `1`，用于首次非交互启动 |
 
-再通过外部浏览器访问服务器 IP 即可。**强烈建议配置 Nginx 反向代理与访问鉴权，不要将管理面板直接暴露在公网。**
+请通过 shell 或服务管理器设置环境变量；程序不会自动加载 `.env` 文件。
+
+从旧版本升级时，请将启动脚本或服务配置中的项目环境变量前缀统一改为 `STEAMSWAP_`，旧前缀不再读取。浏览器中的引导跳过与入门卡片关闭状态会重新记录，账号、策略和交易数据仍使用原有 `config/` 目录。
+
+无桌面模式未指定监听地址时默认绑定 `0.0.0.0`。控制台具有交易和配置权限，且没有独立的访问密码；远程访问请使用 SSH 隧道或带身份验证的反向代理，不要直接开放到公网。
 
 </details>
+
+## 常见问题
+
+**启动后没有窗口？**
+
+手动打开 [本地控制台](http://127.0.0.1:28472)。如果指定了其他端口，请使用终端显示的地址。
+
+**为什么一直没有买入？**
+
+在“运行日志”中查看饰品报告。常见原因包括首次参考价仍在观测、成本率过高、历史波动过大、成交量不足或不在允许购买时段。先看具体原因，再调整对应策略。
+
+**为什么历史行情没有每次重新拉取？**
+
+有效历史默认缓存 12 小时，期间复用本地数据，减少重复请求。可在报告中查看数据来源和采集时间。
+
+**账号登录失效怎么办？**
+
+按页面提示重新登录；服务器环境重新填写 Cookie。出现安全验证时先在平台完成验证。
+
+**出现 429 或限流提示怎么办？**
+
+暂停操作并等待冷却，查看报告确认是哪个平台或接口返回错误。避免反复登录、重启或连续请求。
+
+**提示订单需要核对怎么办？**
+
+先到 BUFF 查看对应订单的付款和交易状态，再按控制台提示确认恢复。不要删除状态文件或重复下单。
+
+**修改配置后没有变化？**
+
+保存配置后，停止当前买入任务再启动。更新程序代码后需要退出并重新运行。
+
+更多错误字段说明见 [诊断文档](docs/ERROR_DIAGNOSTICS.md)。反馈问题时请在 [SteamSwap Issues](https://github.com/Despr0A/SteamSwap/issues) 提供复现步骤和脱敏日志。
+
+## 项目来源与独立维护
+
+SteamSwap 起源于 [AetherSwap](https://github.com/VexedWilosn/AetherSwap)，感谢原作者烦恼的威尔逊及贡献者提供的基础实现。
+
+随着交易流水线、策略模块、行情缓存、诊断报告和前端工作台的持续调整，SteamSwap 的整体架构与维护方向已经发生较大变化。为让后续开发保持持续推进，不再受原项目更新节奏影响，SteamSwap 选择作为独立项目维护，建立自己的版本规划、问题反馈和发布流程。
+
+SteamSwap 并非 AetherSwap 的官方续作；后续问题与功能请求请提交到本项目。独立维护不改变代码的历史来源，本节保留对原项目的致谢。
+
+## 免责声明
 
 <details>
-<summary><b>Q：策略中心里的用户模块可以直接执行代码吗？</b></summary>
-
-不可以。当前版本只允许启用 `module_kind: "declarative"` 的安全声明式模块；它只能读取上下文和前置模块输出，再用白名单操作符做判断。带 `code`、`source`、`entrypoint`、`command` 等字段的外部代码模块只会登记展示，不会执行，也不能加入启用链。
-
-</details>
-
-<details>
-<summary><b>Q：Buff Cookie 过期了怎么办？</b></summary>
-
-在 Web 控制台的【账号管理】中点击「重新登录」。有桌面环境时系统会拉起内嵌浏览器完成重新授权；无桌面服务器会自动切换为手动 Cookie 输入流程。
-
-</details>
-
----
-
-## 🤝 参与贡献
-
-欢迎任何形式的贡献！请遵循以下流程：
-
-1. **Fork** 本仓库
-2. 基于 `main` 创建你的特性分支：`git checkout -b feature/my-awesome-feature`
-3. 提交你的更改：`git commit -m 'feat: add some awesome feature'`
-4. 推送到远端：`git push origin feature/my-awesome-feature`
-5. 发起一个 **Pull Request**
-
-提交 Bug 报告或功能建议，请尽量附上完整日志。
-
----
-
-## 💬 社区 & 联系
-
-如果你在**余额倒卖方面有丰富经验**，欢迎加入测试、反馈选品策略或参数调优建议——你的实战经验将直接帮助改进算法。
-
-> 📱 **微信**：`13738064065`  
-> 加好友时请备注 **SteamSwap** 以及**来访目的**，
-
----
-
-## 🗺 Roadmap
-
-> 以下为计划中的功能，欢迎通过 Issue 或 PR 参与建设！
-
-- [ ] **更多交易平台接入**
-  - [ ] C5Game 平台对接
-  - [ ] IGXE 平台对接
-  - [ ] 悠悠有品平台对接
-- [ ] **更多支付方式**
-  - [x] 微信支付
-  - [ ] 支付宝支付
-- [ ] **移动端 / 响应式 UI 适配**
-- [x] **Docker 一键部署支持**
-- [ ] **多账号并发任务调度**
-
----
-
-## 📄 开发者说明
-
-- **后端栈**：`Python 3.10+` · `FastAPI` · `SQLModel (SQLite)` · `Playwright`
-- **前端栈**：原生 `HTML / JS / CSS`（无框架依赖）
-- **并发机制**：异步 + 多线程融合的后台 Task Queue（`app/services/workers`）
-- **扩展性**：高内聚、低耦合的模块化设计，接入 C5、IGXE 等其他平台仅需添加对应 API 封装层
-
----
-
-## ⚠️ 免责声明
+<summary>使用前请阅读完整声明</summary>
 
 > **在使用、克隆或下载本项目前，请务必仔细阅读本免责声明。您的任何使用行为（包括但不限于下载、安装、运行、修改及分发本项目代码）均被视为对本声明全部条款的无条件知晓、认可及接受。若您不同意本声明的任何内容，请立即停止使用本项目并删除所有相关文件。**
 
@@ -474,12 +285,4 @@ python -m uvicorn app.api:app --host 0.0.0.0 --port 28472
 
 **【最终声明】本项目按“原样”提供，不带有任何明示或暗示的担保。开发者不对代码的准确性、可靠性或适用性做任何承诺。一切使用后果由操作者本人全权负责。**
 
----
-
-<div align="center">
-
-如果 SteamSwap 对你有帮助，欢迎点个 **⭐ Star** 支持一下！
-
-Made with ❤️ for the Steam community
-
-</div>
+</details>

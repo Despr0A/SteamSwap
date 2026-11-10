@@ -110,13 +110,13 @@ def test_forced_relogin_does_not_reuse_existing_cookie(monkeypatch):
 
 
 @pytest.mark.parametrize("ratio, observation", [(0.8, False), (0.7, False), (0.68, False), (0.8, True)])
-def test_early_discount_skips_history_without_changing_observation(monkeypatch, ratio, observation):
+def test_history_is_ready_before_price_checks_even_when_cost_ratio_is_high(monkeypatch, ratio, observation):
     from app import pipeline_steps as steps
 
     calls = []
     enabled = {"buy.steam_sell_depth", "guard.max_discount", "guard.history_data_window"}
     monkeypatch.setattr(steps, "is_strategy_module_enabled", lambda config, side, module_id, default=True: module_id in enabled)
-    monkeypatch.setattr(steps, "_fetch_steam_sell_data", lambda *args, **kwargs: ({"smart_price": 100}, None))
+    monkeypatch.setattr(steps, "_fetch_steam_sell_data", lambda *args, **kwargs: ({"smart_price": 100, "fetched_at": steps.time.time()}, None))
     monkeypatch.setattr(steps, "_check_sell_pressure_precheck", lambda *args: True)
     monkeypatch.setattr(steps, "_check_reference_price_stability", lambda *args, **kwargs: True)
     monkeypatch.setattr(steps, "_adjust_ref_price_for_daily_high", lambda *args, **kwargs: calls.append("adjust") or 100)
@@ -135,10 +135,6 @@ def test_early_discount_skips_history_without_changing_observation(monkeypatch, 
         lambda: False, observation_only=observation,
     )
     assert selected is None
-    if observation:
-        assert calls == ["history", "adjust"]
-    elif ratio >= 0.7:
-        assert calls == []
+    assert calls == ["history", "adjust"]
+    if not observation and ratio >= 0.7:
         assert 1 in failed
-    else:
-        assert calls == ["adjust", "history"]

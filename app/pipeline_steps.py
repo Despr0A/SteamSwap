@@ -1,15 +1,18 @@
 import re
 import inspect
+import math
 import statistics
 import sys
 import threading
 import time
+import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal, ROUND_HALF_UP
 from enum import Enum
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
+from app.config_schema import DEFAULTS
 from app.services.iflow_client import fetch_iflow_rows as _fetch_iflow_rows
 from app.state import get_purchases, set_status
 from app.strategy_engine import evaluate_strategy_runtime_modules, is_strategy_module_enabled
@@ -142,12 +145,13 @@ def _start_console_payment_confirmation(
     if stdin is None or not callable(getattr(stdin, "isatty", None)) or not stdin.isatty():
         return None
     finished = threading.Event()
+    print(
+        "[SteamSwap] 完成付款后可在网页点击“已完成支付”，或输入 y 并按 Enter 继续；"
+        "输入 n 并按 Enter 取消。确认结果会自动显示在此终端。",
+        flush=True,
+    )
 
     def _wait_for_command() -> None:
-        print(
-            "[AetherSwap] 完成付款后输入 y 并按 Enter 继续；输入 n 并按 Enter 取消。",
-            flush=True,
-        )
         while not finished.is_set() and not is_stop_requested():
             raw = _read_console_payment_command(finished)
             if raw is None:
@@ -155,7 +159,7 @@ def _start_console_payment_confirmation(
             decision = _parse_console_payment_command(raw)
             if decision is None:
                 if not finished.is_set():
-                    print("[AetherSwap] 无效输入。请输入 y（已完成支付）或 n（取消）。", flush=True)
+                    print("[SteamSwap] 无效输入。请输入 y（已完成支付）或 n（取消）。", flush=True)
                 continue
             if not finished.is_set():
                 confirm_payment(decision)
@@ -377,6 +381,17 @@ def _buff_orders_cache_is_fresh(
     age = time.time() - float(fetched_at)
     return 0 <= age <= max(0.0, min(float(ttl_seconds), BUFF_ORDERS_CACHE_TTL_SECONDS))
 
+def _steam_reference_price_is_fresh(steam_sell_data: Dict[str, Any], pipeline_cfg: dict) -> bool:
+    fetched_at = steam_sell_data.get("fetched_at")
+    if isinstance(fetched_at, bool) or not isinstance(fetched_at, (int, float)):
+        return False
+    ttl = float(pipeline_cfg.get(
+        "steam_reference_price_ttl_seconds",
+        DEFAULTS["pipeline"]["steam_reference_price_ttl_seconds"],
+    ))
+    return fetched_at > 0 and 0 <= time.time() - fetched_at < ttl
+
+
 def _fetch_steam_sell_data(
     market_hash_name: str,
     config: dict,
@@ -435,7 +450,12 @@ def _fetch_steam_sell_data(
         if price is None:
             reason = "Steam 卖单已获取，但无法计算智能参考价"
             return (None, reason) if return_error else None
-        data = {"sell_orders": orders, "smart_price": price}
+        data = {
+            "sell_orders": orders,
+            "smart_price": price,
+            "fetched_at": result.get("fetched_at"),
+            "source": result.get("source", "unknown"),
+        }
         return (data, None) if return_error else data
     except Exception as e:
         detail = str(e).strip()
@@ -451,6 +471,7 @@ def _check_buff_price(
     buff_client,
     config: dict,
     log_fn,
+    network_report_fn=None,
 ):
     # 拉取 Buff 实时最低价，和 iflow 价格对比确认没有跳动
     # 成功返回 (True, 最新价格)，失败返回 (False, None)
@@ -458,7 +479,18 @@ def _check_buff_price(
     buff_cfg = config.get("buff", {})
     game_buff = buff_cfg.get("game", "csgo")
     tolerance = float(buff_cfg.get("price_tolerance", 0.5))
-    orders = buff_client.get_sell_orders(gid, game_buff)
+    started = time.monotonic()
+    try:
+        orders = buff_client.get_sell_orders(gid, game_buff)
+    except Exception as exc:
+        if network_report_fn:
+            network_report_fn("buff.sell_orders", "failed", error=f"{type(exc).__name__}: {exc}",
+                              elapsed_ms=round((time.monotonic()-started)*1000))
+        raise
+    if network_report_fn:
+        network_report_fn("buff.sell_orders", "success" if orders is not None else "failed",
+                          sell_orders_count=len(orders or []), operation_invoked=True,
+                          elapsed_ms=round((time.monotonic()-started)*1000))
     if not orders:
         if log_fn:
             reason = "接口返回 None，可能是网络/鉴权/风控问题" if orders is None else "Buff 当前无在售卖单"
@@ -815,6 +847,7 @@ def _passes_final_buff_precheck(
     ref_price_est: Optional[float],
     max_discount: Optional[float],
     log_fn: Optional[Callable[[str, str], None]],
+    network_report_fn=None,
 ) -> bool:
     """Fetch BUFF only after the candidate passed the non-BUFF guards."""
     if not buff_client or not is_strategy_module_enabled(config, "buy", "buy.buff_realtime_price"):
@@ -826,6 +859,7 @@ def _passes_final_buff_precheck(
         buff_client,
         config,
         log_fn,
+        network_report_fn=network_report_fn,
     )
     if not buff_ok:
         return False
@@ -943,9 +977,11 @@ def pick_stable_item(
     exclude_goods_ids: Optional[set] = None,
     buff_client: Optional[Any] = None,
     observation_only: bool = False,
+    item_report_fn: Optional[Callable[[Dict[str, Any]], None]] = None,
+    network_report_fn: Optional[Callable[[Dict[str, Any]], None]] = None,
 ) -> Tuple[Optional[Dict[str, Any]], Set[int]]:
     # 遍历候选饰品，返回第一个通过所有检测的
-    # 检测顺序: Buff价格预检 → Steam卖单 → 卖压 → 最高折扣 → 历史稳定性
+    # 先由历史服务复用有效缓存或刷新数据库，再共用这份数据做参考价和稳定性检查。
     stability_cfg = config.get("stability", {})
     stability_days = int(stability_cfg.get("days", 30))
     cv_threshold = float(stability_cfg.get("cv_threshold", 0.05))
@@ -980,7 +1016,74 @@ def pick_stable_item(
         market_hash_name = item.get("steam_market_name") or name
         # 带饰品名称前缀的日志包装，方便追踪每条日志对应哪个饰品
         _short = (name[:30] + "…") if len(name) > 30 else name
-        item_log = (lambda msg, level, _n=_short: log_fn(f"[{_n}] {msg}", level)) if log_fn else None
+        item_report: Dict[str, Any] = {
+            "report_id": uuid.uuid4().hex[:12],
+            "item": name,
+            "goods_id": gid,
+            "market_hash_name": market_hash_name,
+            "checks": [],
+            "details": [],
+        }
+
+        def item_log(msg: str, level: str = "info") -> None:
+            item_report["details"].append({"message": msg, "level": level})
+            if log_fn and not item_report_fn:
+                log_fn(f"[{_short}] {msg}", level)
+
+        def add_item_check(check: str, status: str, **details: Any) -> None:
+            item_report["checks"].append({
+                "check": check,
+                "status": status,
+                **details,
+            })
+
+        def emit_item_report(decision: str, reason: str = "", level: str = "info") -> None:
+            item_report["decision"] = decision
+            if reason:
+                item_report["reason"] = reason
+            item_report["level"] = level
+            reference_check = next(
+                (
+                    check
+                    for check in reversed(item_report["checks"])
+                    if check.get("check") == "reference_price"
+                ),
+                None,
+            )
+            reference_summary = ""
+            if reference_check:
+                reference_summary = (
+                    f" source={reference_check.get('source')}"
+                    f" ratio={reference_check.get('estimated_ratio')}"
+                    f" limit={reference_check.get('limit')}"
+                )
+            item_report["summary"] = (
+                f"饰品报告: {name} decision={decision}"
+                + (f" reason={reason}" if reason else "")
+                + reference_summary
+            )
+            if item_report_fn:
+                item_report_fn({**item_report, "checks": list(item_report["checks"])})
+
+        def emit_network_report(operation: str, status: str, **details: Any) -> None:
+            if not network_report_fn:
+                return
+            report = {
+                "report_id": item_report["report_id"],
+                "operation": operation,
+                "item": name,
+                "goods_id": gid,
+                "status": status,
+                "level": "warn" if status == "failed" else "info",
+                **details,
+                "summary": (
+                    f"网络报告: {operation} item={name} status={status}"
+                    + (f" fresh={details['reference_fresh']}" if "reference_fresh" in details else "")
+                    + (f" points={details['history_points']}" if "history_points" in details else "")
+                ),
+            }
+            network_report_fn(report)
+
         next_name = filtered[i + 1].get("name", "") if i + 1 < n else ""
         set_status("running", step="STABILITY_CHECK", progress_total=n, progress_done=i, progress_item=f"({i+1}/{n}) {name}", next_progress_item=f"({i+2}/{n}) {next_name}" if next_name else "")
         pipeline_cfg = config.get("pipeline", {})
@@ -989,25 +1092,68 @@ def pick_stable_item(
             item_log(f"[稳定性] 开始预检 ({i+1}/{n}) Buff参考价={item.get('min_price')} 比例={item.get('ratio')}", "debug")
         max_discount = pipeline_cfg.get("max_discount") if is_strategy_module_enabled(config, "buy", "guard.max_discount") else None
         sell_pressure_threshold = _parse_threshold(pipeline_cfg.get("sell_pressure_threshold")) if is_strategy_module_enabled(config, "buy", "guard.sell_pressure") else None
-        observed_history = None
-        if observation_only:
-            if item_log:
-                item_log("[观测] 读取 Steam 历史成交价格…", "info")
-            raw = steam_client.fetch_history(
+        history_data = None
+
+        def fetch_history_for_report(purpose: str):
+            started = time.monotonic()
+            raw_history = steam_client.fetch_history(
                 market_hash_name, app_id=730, return_currency=True
             )
-            observed_history = raw if isinstance(raw, dict) else {"history": raw, "currency": None}
-            if item_log:
-                if observed_history.get("history"):
-                    item_log(f"[观测] Steam 历史成交数据读取成功: {len(observed_history['history'])} 条", "info")
-            if not observed_history.get("history"):
-                if item_log:
-                    item_log(f"[观测] 历史成交读取失败：{_history_failure_message(steam_client, market_hash_name)}", "warn")
-                if gid:
-                    stability_failed.add(gid)
-                if failure_delay > 0:
-                    jittered_sleep(failure_delay)
-                continue
+            normalized = (
+                raw_history
+                if isinstance(raw_history, dict)
+                else {"history": raw_history, "currency": None}
+            )
+            history_points = normalized.get("history") if isinstance(normalized, dict) else None
+            getter = getattr(steam_client, "get_last_history_report", None)
+            metadata = getter(market_hash_name) if callable(getter) else {}
+            emit_network_report(
+                "steam.price_history", "success" if history_points else "failed",
+                purpose=purpose, elapsed_ms=round((time.monotonic()-started)*1000),
+                history_points=len(history_points or []), **metadata,
+                error=None if history_points else _history_failure_message(steam_client, market_hash_name),
+            )
+            add_item_check(
+                "history_data", "ready" if history_points else "failed",
+                source=metadata.get("source", "unknown"), fetched_at=metadata.get("fetched_at"),
+                age_seconds=metadata.get("age_seconds"), ttl_seconds=metadata.get("ttl_seconds"),
+                history_points=len(history_points or []), request_id=metadata.get("request_id"),
+            )
+            return normalized
+
+        def fetch_sell_data_for_report():
+            result = _fetch_steam_sell_data(
+                market_hash_name, config, app_id=730, return_error=True
+            )
+            if isinstance(result, tuple) and len(result) == 2:
+                data, error = result
+            else:
+                data, error = result, None
+            if data:
+                data = dict(data)
+                fetched_at = data.get("fetched_at")
+                if (isinstance(fetched_at, bool) or not isinstance(fetched_at, (int, float))
+                        or not math.isfinite(fetched_at)):
+                    data["fetched_at"] = None
+                fresh = _steam_reference_price_is_fresh(data, pipeline_cfg)
+                emit_network_report(
+                    "steam.sell_orders",
+                    "success",
+                    operation_invoked=True,
+                    source=data.get("source", "unknown"),
+                    fetched_at=data.get("fetched_at"),
+                    reference_fresh=fresh,
+                    sell_orders_count=len(data.get("sell_orders") or []),
+                )
+            else:
+                emit_network_report(
+                    "steam.sell_orders",
+                    "failed",
+                    operation_invoked=True,
+                    error=error or "unknown",
+                )
+            return data, error
+
         steam_depth_enabled = is_strategy_module_enabled(config, "buy", "buy.steam_sell_depth")
         need_steam = observation_only or (
             steam_depth_enabled
@@ -1021,6 +1167,17 @@ def pick_stable_item(
         est_ratio: Optional[float] = None
         ref_price_est: Optional[float] = None
 
+        if observation_only or need_steam or history_analysis_enabled:
+            history_data = fetch_history_for_report("candidate_checks")
+            if not history_data.get("history"):
+                item_log(f"历史成交数据不可用，暂缓该饰品：{_history_failure_message(steam_client, market_hash_name)}", "warn")
+                emit_item_report("wait", "history_unavailable", "warn")
+                if gid:
+                    stability_failed.add(gid)
+                if failure_delay > 0:
+                    jittered_sleep(failure_delay)
+                continue
+
         if need_steam:
             plan_price = item.get("min_price")
 
@@ -1028,17 +1185,30 @@ def pick_stable_item(
             # 策略通过之后，避免对注定淘汰的候选消耗请求。
             if item_log and verbose_detail:
                 item_log("[稳定性] 拉取 Steam 卖单深度…", "debug")
-            steam_sell_data, steam_error = _fetch_steam_sell_data(
-                market_hash_name, config, app_id=730, return_error=True
-            )
+            steam_sell_data, steam_error = fetch_sell_data_for_report()
             if not steam_sell_data:
+                add_item_check("steam_sell_orders", "failed", error=steam_error or "unknown")
                 if item_log:
                     item_log(f"[稳定性] 预检未通过: 无法获取 Steam 卖单信息：{steam_error or '未知原因'}", "warn")
+                emit_item_report("wait", "steam_sell_orders_unavailable", "warn")
                 if gid:
                     stability_failed.add(gid)
                 if failure_delay > 0:
                     jittered_sleep(failure_delay)
                 continue
+            reference_is_fresh = _steam_reference_price_is_fresh(steam_sell_data, pipeline_cfg)
+            add_item_check(
+                "reference_freshness",
+                "fresh" if reference_is_fresh else "stale",
+                fetched_at=steam_sell_data.get("fetched_at"),
+                age_seconds=(time.time() - steam_sell_data["fetched_at"])
+                if isinstance(steam_sell_data.get("fetched_at"), (int, float))
+                and not isinstance(steam_sell_data.get("fetched_at"), bool)
+                and math.isfinite(steam_sell_data["fetched_at"]) else None,
+                ttl_seconds=pipeline_cfg.get(
+                    "steam_reference_price_ttl_seconds", DEFAULTS["pipeline"]["steam_reference_price_ttl_seconds"]
+                ),
+            )
             if item_log and verbose_detail:
                 orders_count = len(steam_sell_data.get("sell_orders") or [])
                 smart_dbg = steam_sell_data.get("smart_price")
@@ -1047,34 +1217,12 @@ def pick_stable_item(
 
             smart_price = steam_sell_data.get("smart_price")
 
-            # Use the current Steam reference price to reject obvious misses
-            # before spending a price-history request.
-            if (
-                not observation_only
-                and max_discount is not None
-                and smart_price is not None
-                and smart_price > 0
-                and plan_price is not None
-                and plan_price > 0
-            ):
-                raw_ratio = (plan_price / smart_price) * STEAM_FEE_FACTOR
-                if raw_ratio >= float(max_discount):
-                    if item_log:
-                        item_log(
-                            f"[稳定性] 原始折扣预检未通过: 成本率={raw_ratio:.4f}, "
-                            f"阈值={max_discount}，跳过历史价格请求",
-                            "info",
-                        )
-                    if gid:
-                        stability_failed.add(gid)
-                    if failure_delay > 0:
-                        jittered_sleep(failure_delay)
-                    continue
-
             # 2. 卖压检测
             if not observation_only and not _check_sell_pressure_precheck(
                 item, steam_sell_data, sell_pressure_threshold, pipeline_cfg, item_log
             ):
+                add_item_check("sell_pressure", "reject")
+                emit_item_report("reject", "sell_pressure", "warn")
                 if gid:
                     stability_failed.add(gid)
                 if failure_delay > 0:
@@ -1085,10 +1233,22 @@ def pick_stable_item(
             smart_price = steam_sell_data.get("smart_price")
             if smart_price is not None and smart_price > 0 and plan_price and plan_price > 0:
                 ref_price_est = _adjust_ref_price_for_daily_high(
-                    market_hash_name, smart_price, config, log_fn, app_id=730,
-                    **({"history_data": observed_history} if observation_only else {}),
+                    market_hash_name, smart_price, config, item_log,
+                    app_id=730, history_data=history_data,
                 )
                 est_ratio = (plan_price / ref_price_est) * STEAM_FEE_FACTOR
+                add_item_check(
+                    "reference_price",
+                    "ready",
+                    source="history_adjusted",
+                    plan_price=plan_price,
+                    original_reference_price=smart_price,
+                    reference_price=ref_price_est,
+                    estimated_ratio=est_ratio,
+                    fee_factor=STEAM_FEE_FACTOR,
+                    comparison="<",
+                    limit=max_discount,
+                )
 
             reference_price = ref_price_est if ref_price_est and ref_price_est > 0 else smart_price
             reference_price_is_stable = _check_reference_price_stability(
@@ -1100,6 +1260,12 @@ def pick_stable_item(
                 force_observation=observation_only,
             )
             if observation_only:
+                add_item_check(
+                    "observation",
+                    "pass",
+                    history_points=len(history_data.get("history") or []) if history_data else 0,
+                )
+                emit_item_report("observe", "observation_only")
                 if item_log:
                     item_log(
                         "[观测] 历史成交与卖单读取完成，已记录参考价，不执行交易",
@@ -1107,6 +1273,8 @@ def pick_stable_item(
                     )
                 continue
             if not reference_price_is_stable:
+                add_item_check("reference_stability", "reject")
+                emit_item_report("wait", "reference_price_unstable", "warn")
                 if gid:
                     stability_failed.add(gid)
                 if failure_delay > 0:
@@ -1117,19 +1285,32 @@ def pick_stable_item(
             if not _check_max_discount_precheck(
                 item, gid, smart_price, est_ratio, ref_price_est, plan_price, max_discount, item_log
             ):
+                add_item_check(
+                    "max_discount",
+                    "reject",
+                    plan_price=plan_price,
+                    reference_price=ref_price_est,
+                    estimated_ratio=est_ratio,
+                    limit=max_discount,
+                )
+                emit_item_report("reject", "max_discount", "warn")
                 if gid:
                     stability_failed.add(gid)
                 if failure_delay > 0:
                     jittered_sleep(failure_delay)
                 continue
+            add_item_check("max_discount", "pass" if max_discount is not None else "skipped",
+                           estimated_ratio=est_ratio, limit=max_discount)
 
         if not history_analysis_enabled:
             if smart_price is None and not need_steam:
-                steam_sell_data = _fetch_steam_sell_data(market_hash_name, config, app_id=730)
+                steam_sell_data, _ = fetch_sell_data_for_report()
                 smart_price = steam_sell_data.get("smart_price") if steam_sell_data else None
             if not need_steam and not _check_reference_price_stability(
                 market_hash_name, smart_price, config, item_log, app_id=730
             ):
+                add_item_check("reference_stability", "reject")
+                emit_item_report("reject", "reference_price_unstable", "warn")
                 if gid:
                     stability_failed.add(gid)
                 if failure_delay > 0:
@@ -1145,6 +1326,8 @@ def pick_stable_item(
                 ref_price_est=ref_price_est,
                 log_fn=item_log,
             ):
+                add_item_check("custom_buy_modules", "reject")
+                emit_item_report("reject", "custom_buy_module", "warn")
                 if gid:
                     stability_failed.add(gid)
                 continue
@@ -1157,18 +1340,25 @@ def pick_stable_item(
                 ref_price_est,
                 max_discount,
                 item_log,
+                network_report_fn=emit_network_report,
             ):
+                add_item_check("buff_realtime_price", "reject")
+                emit_item_report("reject", "buff_realtime_price", "warn")
                 if gid:
                     stability_failed.add(gid)
                 continue
             if item_log:
                 item_log("[稳定性] 历史稳定性模块未启用，跳过历史分析，选定本件", "info")
+            add_item_check("candidate", "pass")
+            emit_item_report("pass", "all_checks_passed")
             return item, stability_failed
 
         # 6. 拉历史K线 + 稳定性分析
         if item_log:
             item_log("[稳定性] 拉取历史价格…", "info")
-        raw = steam_client.fetch_history(market_hash_name, return_currency=True)
+        raw = history_data
+        if raw is None:
+            raw = fetch_history_for_report("stability_analysis")
         if raw and isinstance(raw, dict):
             history = raw.get("history")
             currency = raw.get("currency")
@@ -1176,6 +1366,8 @@ def pick_stable_item(
             history = raw if isinstance(raw, list) else None
             currency = None
         if not history:
+            add_item_check("history", "failed", purpose="stability_analysis")
+            emit_item_report("reject", "history_unavailable", "warn")
             if gid:
                 stability_failed.add(gid)
             if item_log:
@@ -1218,27 +1410,33 @@ def pick_stable_item(
             use_vwap=bool(stability_cfg.get("use_vwap", True)),
         )
         if smart_price is not None and not report.get("valid"):
+            add_item_check("stability_analysis", "error", message=report.get("msg", "invalid"))
             if gid:
                 stability_failed.add(gid)
             if item_log:
                 item_log(f"[稳定性] 分析异常: {report.get('msg', '无效')}，试下一个", "warn")
+            emit_item_report("wait", "stability_analysis_invalid", "warn")
             if failure_delay > 0:
                 jittered_sleep(failure_delay)
             continue
 
         if not report.get("is_stable"):
             _log_stability_rejection(report, stability_cfg, smart_price, item_log)
+            add_item_check("stability_analysis", "reject", analysis_status=report.get("status"), message=report.get("msg"))
+            emit_item_report("reject", "stability_analysis", "warn")
             if gid:
                 stability_failed.add(gid)
             if failure_delay > 0:
                 jittered_sleep(failure_delay)
             continue
         if smart_price is None and not need_steam:
-            steam_sell_data = _fetch_steam_sell_data(market_hash_name, config, app_id=730)
+            steam_sell_data, _ = fetch_sell_data_for_report()
             smart_price = steam_sell_data.get("smart_price") if steam_sell_data else None
         if not need_steam and not _check_reference_price_stability(
             market_hash_name, smart_price, config, item_log, app_id=730
         ):
+            add_item_check("reference_stability", "reject")
+            emit_item_report("reject", "reference_price_unstable", "warn")
             if gid:
                 stability_failed.add(gid)
             if failure_delay > 0:
@@ -1255,6 +1453,8 @@ def pick_stable_item(
             report=report,
             log_fn=item_log,
         ):
+            add_item_check("custom_buy_modules", "reject")
+            emit_item_report("reject", "custom_buy_module", "warn")
             if gid:
                 stability_failed.add(gid)
             if failure_delay > 0:
@@ -1269,7 +1469,10 @@ def pick_stable_item(
             ref_price_est,
             max_discount,
             item_log,
+            network_report_fn=emit_network_report,
         ):
+            add_item_check("buff_realtime_price", "reject")
+            emit_item_report("reject", "buff_realtime_price", "warn")
             if gid:
                 stability_failed.add(gid)
             continue
@@ -1284,6 +1487,8 @@ def pick_stable_item(
             bb_upper = report.get("bb_upper")
             bb_str = f" BB+={bb_upper:.2f}" if bb_upper is not None else ""
             item_log(f"[稳定性] ✓ 通过 status={st} cv={report.get('cv',0):.3f} R2={r2:.3f} 均价={report.get('avg',0):.2f} slope={sl:.4f}{ma_str}{bb_str}{smart_str}{pp_str}，选定本件", "info")
+        add_item_check("candidate", "pass")
+        emit_item_report("pass", "all_checks_passed")
         return item, stability_failed
     return None, stability_failed
 def _do_payment_notify_and_wait(
@@ -1313,6 +1518,7 @@ def _do_payment_notify_and_wait(
         "order_id": order_id,
     })
     console_confirmation: Optional[threading.Event] = None
+    terminal_result = "付款等待异常结束，请查看应用日志核对订单状态。"
     try:
         if on_entering_payment:
             on_entering_payment()
@@ -1320,7 +1526,7 @@ def _do_payment_notify_and_wait(
         total_price = unit_price * num
         _notify_windows_pending_order(
             config,
-            "AetherSwap: BUFF 待付款",
+            "SteamSwap: BUFF 待付款",
             (
                 f"{name}\n数量: {num}，总价: {total_price:.2f} 元\n"
                 f"付款方式: {pay_type or '未知'}"
@@ -1331,7 +1537,7 @@ def _do_payment_notify_and_wait(
         # Keep the payment URL in the terminal only. The in-memory web log can
         # be exported, so it intentionally receives no sensitive payment URL.
         print(
-            "\n[AetherSwap] BUFF 待付款订单\n"
+            "\n[SteamSwap] BUFF 待付款订单\n"
             f"物品: {name}\n数量: {num}\n总价: {total_price:.2f} 元\n"
             f"付款链接: {pay_url}\n",
             flush=True,
@@ -1384,6 +1590,12 @@ def _do_payment_notify_and_wait(
             ok = wait_payment_confirm()
         else:
             ok = wait_payment_confirm(timeout_seconds=timeout_sec)
+        if is_stop_requested():
+            terminal_result = "付款等待已停止，请核对订单状态。"
+        elif ok:
+            terminal_result = "已收到付款确认，继续处理订单；无需再输入 y/n。"
+        else:
+            terminal_result = "付款等待已结束：已取消或超时，请核对订单状态。"
         if log_fn:
             log_fn(f"[Buff]   → 用户确认={'成功' if ok else '取消/失败'}", "info")
         return ok
@@ -1391,6 +1603,7 @@ def _do_payment_notify_and_wait(
         if console_confirmation is not None:
             console_confirmation.set()
         set_pending_payment(None)
+        print(f"\n[SteamSwap] {name}：{terminal_result}", flush=True)
 def _do_batch_wait_finalize_and_append(
     buff_client: Any,
     item: Dict[str, Any],
@@ -1836,8 +2049,13 @@ def lock_and_confirm_payment(
                 reason = steam_sell_error or "Steam 卖单为空或智能参考价无效"
                 log_fn(f"[Buff]   → 二次验证: 无法获取 Steam 参考价：{reason}，跳过本件", "warn")
             return SKIP_VERIFICATION_FAILED
+        history_data = SteamClient().fetch_history(market_hash_name, app_id=730, return_currency=True)
+        if not history_data or not history_data.get("history"):
+            if log_fn:
+                log_fn("[Buff] 二次验证: 历史数据不可用，暂缓下单", "warn")
+            return SKIP_VERIFICATION_FAILED
         ref_price = _adjust_ref_price_for_daily_high(
-            market_hash_name, ref_price, config, log_fn, app_id=730
+            market_hash_name, ref_price, config, log_fn, app_id=730, history_data=history_data
         )
         if lowest_price > 0:
             value_ratio = (lowest_price / ref_price) * 1.15
@@ -1946,7 +2164,7 @@ def lock_and_confirm_payment(
             log_fn(f"[Buff]   → 已持有同名(英文) {held_same} 件，安全上限 {safe_limit + held_same} → {safe_limit}", "info")
     if safe_limit <= 0:
         if log_fn:
-            log_fn("[Buff]   → 安全采购模块限制为0，跳过本件", "warn")
+            log_fn("[Buff]   → 单品采购数量限制为0，跳过本件", "warn")
         return SKIP_NO_FAILED
     affordable_quantity = _affordable_quantity(
         target_balance,
@@ -1957,7 +2175,7 @@ def lock_and_confirm_payment(
     orig_num = num_to_buy
     num_to_buy = min(num_to_buy, max(1, safe_limit))
     if log_fn and orig_num > num_to_buy:
-        log_fn(f"[Buff]   → 安全采购上限={safe_limit}，原计划={orig_num} 实际购买={num_to_buy}", "info")
+        log_fn(f"[Buff]   → 单品采购数量限制={safe_limit}，原计划={orig_num} 实际购买={num_to_buy}", "info")
     def _classify_failure(result: Optional[Dict[str, Any]]) -> _PurchaseAttempt:
         if not result:
             return _PurchaseAttempt(
@@ -2226,7 +2444,7 @@ def lock_and_confirm_payment(
         if not pay_url:
             _notify_windows_pending_order(
                 config,
-                "AetherSwap: BUFF 订单已锁定",
+                "SteamSwap: BUFF 订单已锁定",
                 f"{item.get('name', '')}\n订单号: {order_id}\n暂未取得支付链接，请检查运行终端或管理面板",
                 log_fn,
             )
@@ -2459,7 +2677,7 @@ def lock_and_confirm_payment(
         if not pay_url:
             _notify_windows_pending_order(
                 config,
-                "AetherSwap: BUFF 批次已锁定",
+                "SteamSwap: BUFF 批次已锁定",
                 f"{item.get('name', '')}\n批次号: {batch_id}\n暂未取得支付链接，请检查运行终端或管理面板",
                 log_fn,
             )

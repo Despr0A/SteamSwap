@@ -58,6 +58,7 @@ def api_log_export():
         f"{fmt_time(e.get('t'))} [{e.get('level', 'info')}] {redact_text(e.get('msg', ''))}"
         + (f" [category={e.get('category')}, flow_id={e.get('flow_id')}]" if e.get('category') or e.get('flow_id') else "")
         + ("\n  diagnostic=" + json.dumps(redact(e['diagnostic']), ensure_ascii=False) if e.get('diagnostic') else "")
+        + ("\n  report=" + json.dumps(redact(e['report']), ensure_ascii=False) if e.get('report') else "")
         for e in lines
     ) + f"\n# timezone: {timezone_label}\n"
     filename.write_text(content, encoding="utf-8")

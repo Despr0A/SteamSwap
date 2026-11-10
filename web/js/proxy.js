@@ -184,6 +184,7 @@ async function saveProxyConfig() {
 function selectStrategy(strategyId) {
     document.querySelectorAll(".proxy-strategy-card").forEach(card => {
         card.classList.toggle("active", Number(card.dataset.strategy) === strategyId);
+        card.setAttribute("aria-pressed", String(Number(card.dataset.strategy) === strategyId));
     });
 }
 async function clearAllProxies() {

@@ -18,6 +18,7 @@ def test_detect_currency_supports_steam_symbol_prefixes():
     assert detect_currency("CL$ 100") == "CLP"
     assert detect_currency("US$ 100") == "USD"
     assert detect_currency("CNY 100") == "CNY"
+    assert detect_currency("\u00a5 100") == "CNY"
     assert detect_currency("\uffe5 100") == "CNY"
 
 

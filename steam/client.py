@@ -202,6 +202,10 @@ def detect_currency(html: str) -> Optional[str]:
         return "CLP"
     if "JPY" in upper or "JP\u00a5" in upper or "\u5186" in s:
         return "JPY"
+    # Steam commonly returns a bare yen sign for the CNY market.  Treat it as
+    # CNY by default; explicit JPY markers above still take precedence.
+    if "\u00a5" in s:
+        return CURRENCY_CNY
     if "USD" in upper or "US$" in upper or " USD" in upper or '"USD"' in upper:
         return CURRENCY_USD
     if "$" in s:  

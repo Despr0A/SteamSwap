@@ -85,3 +85,32 @@ def test_region_sync_worker_does_not_sleep_before_missing_account_skip(monkeypat
     )
 
     workers.sync_account_region_worker()
+
+
+def test_region_sync_worker_does_not_read_wallet_for_startup_profile_sync(monkeypatch):
+    from app.services import workers
+    from app.services import account_region, steam_wallet
+
+    monkeypatch.setattr(
+        workers,
+        "get_current_account",
+        lambda: {"id": "walletless", "steam_id": "1"},
+    )
+    monkeypatch.setattr(workers, "_sync_account_profile_and_region", lambda acc: None)
+    monkeypatch.setattr(
+        account_region,
+        "get_account",
+        lambda account_id: {"id": account_id, "currency_code": ""},
+    )
+    monkeypatch.setattr(
+        account_region,
+        "update_account",
+        lambda account_id, **kwargs: {"id": account_id, **kwargs},
+    )
+    monkeypatch.setattr(
+        steam_wallet,
+        "get_wallet_balance",
+        lambda cookies: (_ for _ in ()).throw(AssertionError("startup sync must not read Steam wallet")),
+    )
+
+    workers.sync_account_region_worker()

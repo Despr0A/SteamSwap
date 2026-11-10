@@ -1,6 +1,6 @@
 const Theme = {
   get() {
-    return localStorage.getItem("theme") || "system";
+    return localStorage.getItem("theme") || "light";
   },
   set(mode) {
     localStorage.setItem("theme", mode);

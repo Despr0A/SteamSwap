@@ -62,19 +62,37 @@ def refresh_account_region_currency(
     *,
     cookies_raw: Optional[str] = None,
     skip_unconfigured: bool = False,
+    require_wallet: bool = True,
 ) -> dict:
     """Refresh Steam wallet currency and persist the matching display region.
 
     Sale code treats a failed currency refresh as unsafe and refuses listing.
     The settlement currency is the source of truth; region_code is derived from
     that same currency so stale store-country parsing cannot diverge from price
-    calculation.
+    calculation.  Account verification and startup profile sync can pass
+    ``require_wallet=False`` because price-history analysis now normalizes
+    prices with the daily exchange-rate snapshot instead of wallet metadata.
     """
     acc = get_account(account_id) if account_id else get_current_account()
     if not acc:
         return {"ok": False, "skipped": True, "status": "no_account", "error": "未设置当前 Steam 账号"}
     aid = acc.get("id")
     checked_at = time.time()
+    if not require_wallet:
+        updated = update_account(
+            aid,
+            region_check_error="",
+            region_checked_at=checked_at,
+        )
+        return {
+            "ok": True,
+            "skipped": True,
+            "status": "wallet_currency_not_required",
+            "account": updated,
+            "currency_code": str(acc.get("currency_code") or "").strip().upper(),
+            "region_code": str(acc.get("region_code") or "").strip().upper(),
+            "checked_at": checked_at,
+        }
     try:
         cookies = cookies_raw if cookies_raw is not None else get_steam_credentials().get("cookies", "")
         if not cookies or "steamLoginSecure" not in cookies:

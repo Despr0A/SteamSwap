@@ -71,7 +71,7 @@ function appModal(options = {}) {
     const contentBox = host.querySelector(".app-modal-content");
     if (content instanceof HTMLElement && contentBox) contentBox.appendChild(content);
     host.querySelector("[data-export-error]")?.addEventListener("click", () => {
-      downloadTextFile(exportFileName || buildErrorExportName("aetherswap-error"), exportText);
+      downloadTextFile(exportFileName || buildErrorExportName("steamswap-error"), exportText);
       toast("错误信息已导出");
     });
     const close = (value) => {
@@ -201,7 +201,7 @@ function compactErrorText(reason, limit = 260) {
 function compactLoginError(reason) {
   return compactErrorText(reason, 220);
 }
-function buildErrorExportName(prefix = "aetherswap-error") {
+function buildErrorExportName(prefix = "steamswap-error") {
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
   return `${prefix}-${stamp}.txt`;
 }
@@ -230,7 +230,7 @@ function applyRuntimeUiHints() {
   }
   const wizardBuffDesc = document.querySelector("#wizard-step-3 .wizard-desc");
   if (wizardBuffDesc && !canLaunch) {
-    wizardBuffDesc.textContent = "AetherSwap 需要您的 Buff Cookie 来读取市场数据和下单。当前后端无法弹出图形浏览器，请在本机浏览器登录 Buff 后复制 Cookie 并粘贴保存。";
+    wizardBuffDesc.textContent = "SteamSwap 需要您的 Buff Cookie 来读取市场数据和下单。当前后端无法弹出图形浏览器，请在本机浏览器登录 Buff 后复制 Cookie 并粘贴保存。";
   }
   const accountGuideStep = document.querySelector("#accounts-guide-callout .agu-step:nth-child(2)");
   if (accountGuideStep && !canLaunch) {

@@ -171,6 +171,8 @@ def _process_deals_for_target(
             exclude_goods_ids=failed_goods_ids | skipped_this_round | stability_failed_this_round,
             buff_client=buyer,
             observation_only=observation_only,
+            item_report_fn=getattr(ctx, "item_report", None),
+            network_report_fn=getattr(ctx, "network_report", None),
         )
         stability_failed_this_round |= new_stability_failed
 
@@ -272,7 +274,7 @@ def _process_deals_for_target(
             gid = chosen.get("goods_id")
             if gid is not None:
                 skipped_this_round.add(gid)
-            ctx.log("安全采购上限不足，跳过本件", "warn", category="buff")
+            ctx.log("单品采购数量限制不足，跳过本件", "warn", category="buff")
             continue
         if paid is SKIP_VERIFICATION_FAILED:
             gid = chosen.get("goods_id")

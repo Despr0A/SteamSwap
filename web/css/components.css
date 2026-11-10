@@ -3899,6 +3899,44 @@ textarea.app-modal-input {
   content: none;
 }
 
+.log-report {
+  margin-bottom: 10px;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: normal;
+}
+
+.log-report summary {
+  cursor: pointer;
+  padding: 10px 14px;
+  font-family: var(--font-sans);
+  color: var(--text-main);
+}
+
+.log-report.log-line-warn { border-left: 3px solid var(--warning); }
+.log-report.log-line-error { border-left: 3px solid var(--danger); }
+
+.log-report-content {
+  padding: 0 14px 14px;
+  color: var(--text-main);
+}
+
+.log-report dl {
+  display: grid;
+  grid-template-columns: minmax(110px, 180px) minmax(0, 1fr);
+  gap: 4px 12px;
+  margin: 10px 0;
+}
+
+.log-report dt { color: var(--text-secondary); }
+.log-report dd { margin: 0; white-space: pre-wrap; }
+.log-report section { border-top: 1px solid var(--border-color); padding-top: 10px; }
+.log-report pre { white-space: pre-wrap; overflow-wrap: anywhere; }
+.log-report button { margin-top: 12px; }
+
 /* Scrollbar styling */
 .console-body::-webkit-scrollbar {
   width: 6px;

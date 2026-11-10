@@ -31,7 +31,7 @@ def index():
     f = WEB_DIR / "index.html"
     if f.exists():
         return _web_file_response(f)
-    return {"app": "aetherswap", "ui": "web/index.html not found"}
+    return {"app": "SteamSwap", "ui": "web/index.html not found"}
 @router.get("/{path:path}")
 def static_or_index(path: str):
     if path == "api" or path.startswith("api/"):

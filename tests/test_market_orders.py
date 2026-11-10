@@ -133,7 +133,8 @@ def test_get_sell_orders_cny_优先使用新版ssr而不是旧item_nameid缓存(
 
     result = market_orders.get_sell_orders_cny(object(), "AK-47 | Redline (Minimal Wear)", use_cache=False)
 
-    assert result == {"lowest_price": 12.34, "sell_orders": [(12.34, 2)]}
+    assert isinstance(result["fetched_at"], float)
+    assert {k: v for k, v in result.items() if k not in {"fetched_at", "source"}} == {"lowest_price": 12.34, "sell_orders": [(12.34, 2)]}
 
 
 def test_get_sell_orders_cny_聚合页会回退到带筛选的分组页面(monkeypatch):
@@ -399,7 +400,7 @@ def test_直方图接口命中12小时缓存时不发起请求(monkeypatch):
         NoRequestSession(), "123", return_error=True
     )
 
-    assert result == cached
+    assert result == {**cached, "fetched_at": 0}
     assert error is None
 
 
@@ -441,7 +442,8 @@ def test_直方图接口超过12小时刷新并写入缓存(monkeypatch):
         DummySession(), "123", return_error=True
     )
 
-    assert result == response_data
+    assert isinstance(result["fetched_at"], float)
+    assert {k: v for k, v in result.items() if k not in {"fetched_at", "source"}} == response_data
     assert error is None
     assert saved and saved[0][0][0] == "123"
 
@@ -472,7 +474,8 @@ def test_get_sell_orders_cny_订单簿成功时不请求市场页面(monkeypatch
         use_cache=False,
     )
 
-    assert result == {"lowest_price": 8.9, "sell_orders": [(8.9, 1)]}
+    assert isinstance(result["fetched_at"], float)
+    assert {k: v for k, v in result.items() if k not in {"fetched_at", "source"}} == {"lowest_price": 8.9, "sell_orders": [(8.9, 1)]}
 
 
 def test_页面限流后代理失败保留两种错误(monkeypatch):

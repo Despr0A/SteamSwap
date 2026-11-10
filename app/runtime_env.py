@@ -74,7 +74,7 @@ def get_runtime_profile(
 ) -> RuntimeProfile:
     source = os.environ if env is None else env
     platform = (platform_name or sys.platform).lower()
-    requested = _env_value("AETHERSWAP_MODE", "AETHERSWAP_RUNTIME", env=source).lower() or "auto"
+    requested = _env_value("STEAMSWAP_MODE", "STEAMSWAP_RUNTIME", env=source).lower() or "auto"
     if requested in {"headless", "service"}:
         requested = "server"
     elif requested in {"gui", "webview"}:
@@ -83,9 +83,9 @@ def get_runtime_profile(
         requested = "auto"
 
     display_available = has_graphical_display(source, platform)
-    manual_login_only = env_bool("AETHERSWAP_MANUAL_LOGIN_ONLY", False, source) is True
-    explicit_headless = env_bool("AETHERSWAP_HEADLESS", None, source)
-    server_only = env_bool("AETHERSWAP_SERVER_ONLY", False, source) is True
+    manual_login_only = env_bool("STEAMSWAP_MANUAL_LOGIN_ONLY", False, source) is True
+    explicit_headless = env_bool("STEAMSWAP_HEADLESS", None, source)
+    server_only = env_bool("STEAMSWAP_SERVER_ONLY", False, source) is True
 
     if requested == "server" or server_only:
         mode = "server"
@@ -110,8 +110,8 @@ def get_runtime_profile(
     can_open_gui = mode == "desktop" and display_available and not headless
     can_launch_headful_browser = can_open_gui and not manual_login_only
     # Running the service must not unexpectedly take focus or create a GUI.
-    # Desktop users can still opt in with AETHERSWAP_OPEN_BROWSER=1.
-    open_browser = env_bool("AETHERSWAP_OPEN_BROWSER", False, source)
+    # Desktop users can still opt in with STEAMSWAP_OPEN_BROWSER=1.
+    open_browser = env_bool("STEAMSWAP_OPEN_BROWSER", False, source)
 
     return RuntimeProfile(
         platform=platform,
@@ -127,7 +127,7 @@ def get_runtime_profile(
 
 
 def get_bind_host(profile: Optional[RuntimeProfile] = None, env: Optional[Mapping[str, str]] = None) -> str:
-    host = _env_value("AETHERSWAP_HOST", env=env)
+    host = _env_value("STEAMSWAP_HOST", env=env)
     if host:
         return host
     profile = profile or get_runtime_profile(env=env)
@@ -135,7 +135,7 @@ def get_bind_host(profile: Optional[RuntimeProfile] = None, env: Optional[Mappin
 
 
 def get_port(env: Optional[Mapping[str, str]] = None) -> int:
-    raw = _env_value("AETHERSWAP_PORT", "PORT", env=env)
+    raw = _env_value("STEAMSWAP_PORT", "PORT", env=env)
     if not raw:
         return DEFAULT_PORT
     try:

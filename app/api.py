@@ -47,7 +47,7 @@ def _start_background_workers() -> None:
 async def _lifespan(application: FastAPI):
     _start_background_workers()
     yield
-app = FastAPI(title="aetherswap", lifespan=_lifespan)
+app = FastAPI(title="SteamSwap", lifespan=_lifespan)
 @app.get("/api/runtime")
 def api_runtime():
     return {"ok": True, "runtime": get_runtime_profile().as_dict()}

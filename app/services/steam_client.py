@@ -6,7 +6,7 @@ import time
 import uuid
 from typing import Any, Dict, List, Optional, Union
 from steam.cookies import cookie_metadata
-from app.steam_history import get_price_history, merge_price_history
+from app.steam_history import HISTORY_REFRESH_SECONDS, get_price_history, merge_price_history
 from utils.diagnostics import endpoint, exception_details, http_code, one_line, redact
 from app.config_loader import (
     get_steam_credentials,
@@ -23,7 +23,9 @@ steam_account_cooldown_seconds = 5 * 60
 steam_account_invalid_cooldown_seconds = 60 * 60
 steam_all_accounts_wait_seconds = 30
 _history_cache: Dict[str, tuple] = {}
-_history_cache_ttl = 300
+# Historical price points are persisted and used for multi-day stability
+# analysis, so refreshing them every few minutes is unnecessary.
+_history_cache_ttl = HISTORY_REFRESH_SECONDS
 _history_cache_max = 200
 _history_pool_lock = threading.Lock()
 _history_pool_cursor = 0
@@ -50,34 +52,9 @@ def _credential_diagnostics(account: dict) -> dict:
 def _history_accounts() -> list[dict]:
     pool = get_steam_history_credentials()
     primary = get_steam_credentials() or {}
-    try:
-        from app.accounts import get_current_account, list_accounts
-
-        current = get_current_account() or {}
-        current_currency = str(current.get("currency_code") or "").strip().upper()
-        account_metadata = {
-            str(item.get("id") or "").strip(): item
-            for item in list_accounts()
-            if isinstance(item, dict)
-        }
-        account_by_steam_id = {
-            str(item.get("steam_id") or "").strip(): item
-            for item in list_accounts()
-            if isinstance(item, dict) and str(item.get("steam_id") or "").strip()
-        }
-        def metadata_for(account: dict) -> dict:
-            return account_metadata.get(str(account.get("account_id") or "").strip(), {}) or account_by_steam_id.get(str(account.get("steam_id") or "").strip(), {})
-        pool = [
-            account for account in pool
-            if metadata_for(account).get("id") == current.get("id")
-            or (
-                current_currency
-                and metadata_for(account).get("region_check_ok") is True
-                and str(metadata_for(account).get("currency_code") or "").strip().upper() == current_currency
-            )
-        ]
-    except Exception:
-        pool = []
+    # History credentials are selected by valid Cookie/identity only.  Wallet
+    # setup is optional for new accounts, and currency is converted to CNY
+    # after the response using the daily exchange-rate snapshot.
     if primary.get("cookies"):
         pool = [*pool, {
             "account_id": "primary",
@@ -161,28 +138,37 @@ def _can_auto_relogin_account(account: dict) -> bool:
 
 
 def _resolve_history_currency(result, account: dict):
-    if not isinstance(result, dict) or result.get("currency") or result.get("currency_symbol") != "\u00a5":
+    if not isinstance(result, dict) or result.get("currency"):
         return result
     from app.accounts import get_account, get_current_account
-    from app.services.account_region import refresh_account_region_currency
     from app.state import log
 
     account_id = account.get("account_id")
     metadata = (get_current_account() if account_id == "primary" else get_account(account_id)) or {}
     cookies = str(account.get("cookies") or "")
     identity = cookie_metadata(cookies).get("steam_id")
-    if not metadata.get("id") or not identity or identity != str(metadata.get("steam_id") or ""):
+    expected_identity = str(metadata.get("steam_id") or account.get("steam_id") or "").strip()
+    if not identity or not expected_identity or identity != expected_identity:
         return result
-    currency = str(metadata.get("currency_code") or "").upper()
-    if metadata.get("region_check_ok") is not True:
-        refreshed = refresh_account_region_currency(metadata["id"], cookies_raw=cookies)
-        if not refreshed.get("ok"):
-            log(f"[SteamClient] account={metadata['id']} 历史货币符号无法确认: {refreshed.get('error')}", "warn", category="steam")
-            return result
-        currency = str(refreshed.get("currency_code") or "").upper()
-    if currency not in ("CNY", "JPY"):
+    currency = str(metadata.get("currency_code") or "").strip().upper()
+    currency_symbol = str(result.get("currency_symbol") or "").strip()
+    if currency_symbol in ("\u00a5", "\uffe5") and currency not in ("CNY", "JPY"):
+        # Steam uses the same yen sign for CNY and JPY.  Wallet metadata is
+        # deliberately not queried here: history accounts can be brand new
+        # and have no wallet.  The service's default market is CNY, while an
+        # explicitly stored account currency remains respected when present.
+        currency = "CNY"
+    elif not currency_symbol and not currency:
+        currency = "CNY"
+    elif currency_symbol and currency_symbol not in ("\u00a5", "\uffe5"):
         return result
-    log(f"[SteamClient] account={metadata['id']} 历史货币符号按已验证钱包币种解析为 {currency}", "debug", category="steam")
+    account_label = metadata.get("id") or account_id or expected_identity
+    log(
+        f"[SteamClient] account={account_label} 历史货币字段={currency_symbol or '(空)'}，"
+        f"按无需钱包的历史规则解析为 {currency}",
+        "debug",
+        category="steam",
+    )
     return {**result, "currency": currency}
 
 
@@ -203,6 +189,16 @@ class SteamClient:
         if error and error.get("item") == market_hash_name and error.get("app_id") == app_id:
             return redact(error)
         return None
+
+    def get_last_history_report(self, market_hash_name: str, app_id: int = 730) -> dict:
+        if (getattr(self._request_context, "item", None) != market_hash_name
+                or getattr(self._request_context, "app_id", None) != app_id):
+            return {}
+        return redact({
+            **getattr(self._request_context, "report", {}),
+            "request_id": getattr(self._request_context, "request_id", ""),
+            "diagnostic": self.get_last_history_error(market_hash_name, app_id),
+        })
 
     def _record_history_error(self, code: str, stage: str, **details) -> dict:
         from app.state import log
@@ -233,11 +229,16 @@ class SteamClient:
         self._request_context.request_id = uuid.uuid4().hex[:12]
         self._request_context.item = market_hash_name
         self._request_context.app_id = app_id
+        self._request_context.report = {
+            "source": "local", "network_attempted": False, "attempts": 0,
+            "ttl_seconds": self._cache_ttl,
+        }
         key = f"{market_hash_name}:{app_id}"
         now = time.time()
         if key in _history_cache:
             data, ts = _history_cache[key]
             if 0 <= now - ts < self._cache_ttl:
+                self._request_context.report.update(source="memory_cache", fetched_at=ts, age_seconds=now-ts)
                 return data if return_currency else data["history"]
         from app.state import log
         try:
@@ -248,22 +249,29 @@ class SteamClient:
         if stored is not None:
             result = {"history": stored["history"], "currency": stored["currency"]}
             fetched_at = stored["fetched_at"]
+            self._request_context.report.update(source="database_cache", fetched_at=fetched_at, age_seconds=now-fetched_at)
             log(f"[SteamClient] 复用本地历史行情: {market_hash_name} {len(result['history'])} 条", "debug", category="steam")
         else:
+            self._request_context.report["source"] = "refresh"
             result = self._fetch_history_impl(market_hash_name, app_id, True)
             if result is None:
                 if self.get_last_history_error(market_hash_name, app_id) is None:
                     self._record_history_error("HISTORY_UNAVAILABLE", "fetch", detail="请求适配器未提供失败详情", action="核查 steam 类别日志与适配器")
                 return None
             if isinstance(result, list):
-                from app.accounts import get_current_account
-                result = {"history": result, "currency": (get_current_account() or {}).get("currency_code")}
+                # Legacy adapters return only points.  Keep the historical
+                # CNY default so an account without wallet metadata can still
+                # participate in price-history analysis.
+                result = {"history": result, "currency": "CNY"}
             fetched_at = time.time()
+            self._request_context.report.update(fetched_at=fetched_at, age_seconds=0)
             try:
-                config = load_app_config_validated()
                 stats = merge_price_history(
                     market_hash_name, result, app_id=app_id, fetched_at=fetched_at,
-                    usd_to_cny_rate=float((config.get("pipeline") or {}).get("usd_to_cny", 7.2)),
+                    # History normalization must use the shared daily rate
+                    # snapshot; do not fall back to a per-account wallet or
+                    # static USD rate here.
+                    usd_to_cny_rate=None,
                 )
                 log(
                     f"[SteamClient] 历史行情已入库: {market_hash_name} 返回={stats['received']} "
@@ -281,6 +289,13 @@ class SteamClient:
                 self._record_history_error(code, "normalize", detail=f"currency={result.get('currency')} received={stats['received']} valid={stats['valid']} total={stats['total']}; 原始响应已保存但不能用于人民币行情", action="检查币种、汇率与历史时间/价格字段")
                 return None
         if result is not None:
+            if stored.get("unconverted_points", 0):
+                log(
+                    f"[SteamClient] 历史行情跳过未换算记录: {market_hash_name} "
+                    f"未换算={stored['unconverted_points']} 可用={len(result['history'])}；"
+                    "原始记录已保留，仅使用已归一化的人民币行情",
+                    "info", category="steam",
+                )
             self._request_context.error = None
             if len(_history_cache) >= self._cache_max:
                 oldest = min(_history_cache.items(), key=lambda x: x[1][1])
@@ -345,6 +360,13 @@ class SteamClient:
                     attempt += 1
                     if proxies:
                         used_proxy_urls.update(proxies.values())
+                    report = getattr(self._request_context, "report", {})
+                    report.update(
+                        network_attempted=True, attempts=report.get("attempts", 0) + 1,
+                        endpoint="steamcommunity.com/market/pricehistory/", method="GET",
+                        account=account.get("account_id"),
+                        proxy=endpoint(proxies.get("https") or proxies.get("http") or "") if proxies else "direct/system",
+                    )
                     try:
                         response = _fetch_history(
                             market_hash_name, app_id=app_id, timeout=self._timeout,
@@ -379,6 +401,7 @@ class SteamClient:
                         status_code = 200 if result is not None else None
                         auth_refresh_redirected = False
                         request_error = {}
+                    report["http_status"] = status_code
                     if result is not None:
                         return _resolve_history_currency(result, {**account, "cookies": cookies})
                     code = request_error.get("code") or (http_code(status_code, auth_refresh_redirected) if status_code and status_code != 200 else "HISTORY_UNAVAILABLE")

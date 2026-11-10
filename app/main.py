@@ -43,7 +43,7 @@ def _ensure_disclaimer() -> None:
     disclaimer_file = Path(".agreed_disclaimer")
     if disclaimer_file.exists():
         return
-    if env_bool("AETHERSWAP_AGREE_DISCLAIMER", False):
+    if env_bool("STEAMSWAP_AGREE_DISCLAIMER", False):
         try:
             disclaimer_file.touch()
         except Exception:
@@ -51,7 +51,7 @@ def _ensure_disclaimer() -> None:
         return
     if not sys.stdin.isatty():
         print("首次运行需要确认 README 中的免责声明。")
-        print("交互式运行 python run.py 后输入 y，或确认已阅读后设置 AETHERSWAP_AGREE_DISCLAIMER=1。")
+        print("交互式运行 python run.py 后输入 y，或确认已阅读后设置 STEAMSWAP_AGREE_DISCLAIMER=1。")
         sys.exit(1)
     print("本程序仅供学习，运行即代表同意 README 中的免责声明。")
     confirm = input("是否继续？(y/n): ")
@@ -91,7 +91,7 @@ def run_server(host: str | None = None, port: int | None = None) -> None:
 
 
 def _parse_cli_args(argv: list[str] | None = None):
-    parser = argparse.ArgumentParser(description="AetherSwap service runner")
+    parser = argparse.ArgumentParser(description="SteamSwap service runner")
     parser.add_argument(
         "--no-ui",
         action="store_true",
@@ -107,8 +107,8 @@ def _parse_cli_args(argv: list[str] | None = None):
         action="store_true",
         help="only observe Steam reference prices; requires --start-pipeline and never creates BUFF orders",
     )
-    parser.add_argument("--host", help="override AETHERSWAP_HOST")
-    parser.add_argument("--port", type=int, help="override AETHERSWAP_PORT")
+    parser.add_argument("--host", help="override STEAMSWAP_HOST")
+    parser.add_argument("--port", type=int, help="override STEAMSWAP_PORT")
     args = parser.parse_args(argv)
     if args.observe_reference_prices and not args.start_pipeline:
         parser.error("--observe-reference-prices requires --start-pipeline")
@@ -117,11 +117,11 @@ def _parse_cli_args(argv: list[str] | None = None):
 
 def _apply_cli_overrides(args) -> None:
     if args.no_ui:
-        os.environ["AETHERSWAP_OPEN_BROWSER"] = "0"
+        os.environ["STEAMSWAP_OPEN_BROWSER"] = "0"
     if args.host:
-        os.environ["AETHERSWAP_HOST"] = args.host
+        os.environ["STEAMSWAP_HOST"] = args.host
     if args.port is not None:
-        os.environ["AETHERSWAP_PORT"] = str(args.port)
+        os.environ["STEAMSWAP_PORT"] = str(args.port)
 
 
 def _start_pipeline_from_cli(*, observation_only: bool = False) -> bool:
@@ -189,7 +189,7 @@ def main(argv: list[str] | None = None) -> None:
     local_url = get_local_url(host, port)
     external_hint = get_external_url_hint(host, port)
 
-    print(f"AetherSwap runtime: {profile.mode} ({profile.reason})")
+    print(f"SteamSwap runtime: {profile.mode} ({profile.reason})")
     print(f"Listening on {external_hint}")
 
     if args.start_pipeline and not _start_pipeline_from_cli(
@@ -219,7 +219,7 @@ def main(argv: list[str] | None = None) -> None:
     webview, webview_error = _load_webview()
     if webview:
         try:
-            webview.create_window("aetherswap", local_url, width=1280, height=800, zoomable=True, maximized=True)
+            webview.create_window("SteamSwap", local_url, width=1280, height=800, zoomable=True, maximized=True)
             webview.start()
             print(f"窗口已关闭，后端仍在运行。浏览器打开 {local_url} 可继续查看状态。按 Ctrl+C 退出。")
             _wait_for_server_thread(thread)

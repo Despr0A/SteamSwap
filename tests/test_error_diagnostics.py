@@ -111,6 +111,11 @@ def test_service_and_pipeline_preserve_request_context(monkeypatch, tmp_path):
     assert error["attempt"] == 2
     assert error["failure_counts"]["INVALID_JSON"] == 2
     assert error["request_id"]
+    history_report = client.get_last_history_report("Item")
+    assert history_report["request_id"] == error["request_id"]
+    assert history_report["network_attempted"] is True
+    assert history_report["attempts"] == 2
+    assert history_report["diagnostic"]["code"] == "INVALID_JSON"
     assert any(error["request_id"] in msg and "INVALID_JSON" in msg for msg in logs)
     monkeypatch.setattr(service, "_fetch_history", lambda *args, **kwargs: (
         {"history": [["Oct 10 2026 01: +0", 10, "1"]], "currency": "CNY"}, 200))

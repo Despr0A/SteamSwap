@@ -212,6 +212,37 @@ def test_verify_account_triggers_region_currency_refresh(monkeypatch):
     assert result["message"] == "验证通过"
 
 
+def test_verify_account_accepts_walletless_account_without_wallet_request(monkeypatch):
+    from app.routes import accounts
+    from app.services import account_region, steam_wallet
+
+    monkeypatch.setattr(
+        accounts,
+        "verify_steam_auto_login",
+        lambda account_id: {"ok": True, "status": "auto_ok", "message": "验证通过"},
+    )
+    monkeypatch.setattr(
+        account_region,
+        "get_account",
+        lambda account_id: {"id": account_id, "currency_code": "", "region_code": ""},
+    )
+    monkeypatch.setattr(
+        account_region,
+        "update_account",
+        lambda account_id, **kwargs: {"id": account_id, **kwargs},
+    )
+    monkeypatch.setattr(
+        steam_wallet,
+        "get_wallet_balance",
+        lambda cookies: (_ for _ in ()).throw(AssertionError("verification must not read Steam wallet")),
+    )
+
+    result = accounts.api_verify_account("walletless")
+
+    assert result["ok"] is True
+    assert result["region_sync"]["status"] == "wallet_currency_not_required"
+
+
 def test_get_base_auth_status_strict_reads_store_user_config_country(monkeypatch):
     from app.services import steam_wallet
     import utils.proxy_manager as proxy_manager

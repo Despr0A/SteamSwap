@@ -14,7 +14,7 @@ from pathlib import Path
 import requests
 
 
-WINDOWS_APP_USER_MODEL_ID = "AetherSwap"
+WINDOWS_APP_USER_MODEL_ID = "SteamSwap"
 WINDOWS_NOTIFICATION_LAUNCH_URI = "http://127.0.0.1:28472/"
 _windows_registration_lock = threading.Lock()
 _windows_registration_result: Optional[bool] = None
@@ -58,7 +58,7 @@ def _register_windows_aumid() -> bool:
             if argv and Path(argv[0]).exists():
                 shortcut.Arguments = subprocess.list2cmdline(argv[0:])
             shortcut.WorkingDirectory = str(Path.cwd())
-            shortcut.Description = "AetherSwap"
+            shortcut.Description = "SteamSwap"
             shortcut.IconLocation = f"{target},0"
             shortcut.Save()
 
@@ -99,7 +99,7 @@ def _send_winrt_toast(title: str, message: str) -> bool | None:
             "<text>{title}</text><text>{message}</text>"
             "</binding></visual></toast>".format(
                 launch=escape(WINDOWS_NOTIFICATION_LAUNCH_URI, quote=True),
-                title=escape(str(title or "AetherSwap")),
+                title=escape(str(title or "SteamSwap")),
                 message=escape(str(message or "")),
             )
         )
@@ -145,7 +145,7 @@ def send_windows_toast(title: str, message: str) -> bool:
     if not powershell:
         return False
 
-    title_b64 = base64.b64encode(str(title or "AetherSwap").encode("utf-8")).decode("ascii")
+    title_b64 = base64.b64encode(str(title or "SteamSwap").encode("utf-8")).decode("ascii")
     message_b64 = base64.b64encode(str(message or "").encode("utf-8")).decode("ascii")
     script = f'''$ErrorActionPreference = "Stop"
 [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null
@@ -157,7 +157,7 @@ $textNodes = $xml.GetElementsByTagName("text")
 $textNodes.Item(0).AppendChild($xml.CreateTextNode($title)) | Out-Null
 $textNodes.Item(1).AppendChild($xml.CreateTextNode($message)) | Out-Null
 $toast = New-Object Windows.UI.Notifications.ToastNotification $xml
-[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("AetherSwap").Show($toast)
+[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("SteamSwap").Show($toast)
 '''
     encoded_script = base64.b64encode(script.encode("utf-16le")).decode("ascii")
     try:

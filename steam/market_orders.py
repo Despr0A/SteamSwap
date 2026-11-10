@@ -654,6 +654,8 @@ def fetch_item_orders_histogram(
     stale_data = None
     if cached_entry:
         cached_data = cached_entry.get("data")
+        if isinstance(cached_data, dict):
+            cached_data = {**cached_data, "fetched_at": cached_entry.get("fetched_at")}
         cached_age = float(cached_entry.get("age", 0.0) or 0.0)
         if isinstance(cached_data, dict) and cached_age < HISTORY_REFRESH_SECONDS:
             logger.debug(
@@ -709,12 +711,14 @@ def fetch_item_orders_histogram(
                 any_success = True
                 data = r.json()
                 if isinstance(data, dict) and data.get("success") == 1:
+                    data = {**data, "fetched_at": time.time()}
                     set_cached_item_orders_histogram(
                         item_nameid,
                         data,
                         country=country,
                         language=language,
                         currency=currency,
+                        fetched_at=data["fetched_at"],
                     )
                     with _cb_lock:
                         _cb_fail_streak = 0  
@@ -801,7 +805,8 @@ def get_sell_orders_cny(
         with _sell_orders_cache_lock:
             entry = _sell_orders_cache.get(key)
         if entry and time.time() < entry[1]:
-            return (entry[0], None) if return_error else entry[0]
+            cached = {**entry[0], "source": "memory_cache"}
+            return (cached, None) if return_error else cached
     action_result, action_error = _fetch_action_orderbook_cny(
         session,
         market_hash_name,
@@ -809,6 +814,7 @@ def get_sell_orders_cny(
         usd_to_cny_rate=usd_to_cny_rate,
     )
     if action_result:
+        action_result = {**action_result, "fetched_at": time.time(), "source": "action_orderbook"}
         if use_cache:
             with _sell_orders_cache_lock:
                 _sell_orders_cache[key] = (action_result, time.time() + _SELL_ORDERS_TTL)
@@ -820,6 +826,7 @@ def get_sell_orders_cny(
         usd_to_cny_rate=usd_to_cny_rate,
     )
     if ssr_result:
+        ssr_result = {**ssr_result, "fetched_at": time.time(), "source": "ssr_orderbook"}
         if use_cache:
             with _sell_orders_cache_lock:
                 _sell_orders_cache[key] = (ssr_result, time.time() + _SELL_ORDERS_TTL)
@@ -864,7 +871,12 @@ def get_sell_orders_cny(
         except (ValueError, TypeError):
             pass
     sell_orders = _parse_sell_order_graph(data.get("sell_order_graph", []))
-    result = {"lowest_price": lowest_price, "sell_orders": sell_orders}
+    result = {
+        "lowest_price": lowest_price,
+        "sell_orders": sell_orders,
+        "fetched_at": data.get("fetched_at"),
+        "source": "histogram",
+    }
     if use_cache:
         with _sell_orders_cache_lock:
             _sell_orders_cache[key] = (result, time.time() + _SELL_ORDERS_TTL)

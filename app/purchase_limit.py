@@ -7,6 +7,7 @@ def calculate_safe_purchase_limit(
     low_price_penalty: float = 0.5,
     low_price_hard_cap: int = 30,
 ) -> int:
+    """计算单个饰品本轮的采购数量限制。"""
     if item_price <= 0:
         return 0
     volume_cap = int(daily_volume * liquidity_ratio)

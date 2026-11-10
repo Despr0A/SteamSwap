@@ -15,7 +15,7 @@ import threading
 import time
 from pathlib import Path
 from typing import Any, Optional
-from utils.money import apply_currency, USD_TO_CNY_DEFAULT
+from utils.money import apply_currency
 from utils.time import parse_steam_history_date
 
 _CONFIG_DIR = Path(__file__).resolve().parent.parent / "config"
@@ -137,7 +137,7 @@ def merge_price_history(
     *,
     app_id: int = 730,
     fetched_at: Optional[float] = None,
-    usd_to_cny_rate: float = USD_TO_CNY_DEFAULT,
+    usd_to_cny_rate: Optional[float] = None,
 ) -> dict[str, int]:
     """Merge shared market points; keep raw values alongside their CNY prices."""
     name = str(market_hash_name).strip()
@@ -212,10 +212,10 @@ def get_price_history(
     market_hash_name: str,
     *,
     app_id: int = 730,
-    max_age: float = 300,
+    max_age: float = HISTORY_REFRESH_SECONDS,
     now: Optional[float] = None,
 ) -> Optional[dict[str, Any]]:
-    """Read a fresh shared CNY series. Expiration never deletes market history."""
+    """Read fresh normalized points; retain unconverted raw rows for later use."""
     current_time = time.time() if now is None else float(now)
     conn = _get_connection()
     try:
@@ -230,21 +230,29 @@ def get_price_history(
                 return None
             response = json.loads(meta[0])
             currency = response.get("currency")
-            _, converted_currency = apply_currency([1.0], currency)
+            _, converted_currency = apply_currency([1.0], currency, None)
             if not response.get("history") or not currency or converted_currency != "CNY":
                 return None
             rows = conn.execute(
                 "SELECT point_json, price_cny FROM steam_price_history WHERE app_id = ? AND market_hash_name = ? ORDER BY traded_at",
                 (int(app_id), str(market_hash_name).strip()),
             ).fetchall()
-            if not rows or any(price is None for _, price in rows):
-                return None
             history = []
             for raw, price in rows:
+                # An older response may lack currency for points no longer
+                # returned by Steam. Keep those raw rows without blocking the
+                # normalized series or guessing their original currency.
+                if price is None:
+                    continue
                 point = json.loads(raw)
                 point[1] = price
                 history.append(point)
-        return {"history": history, "currency": "CNY", "fetched_at": meta[1]}
+            if not history:
+                return None
+        return {
+            "history": history, "currency": "CNY", "fetched_at": meta[1],
+            "unconverted_points": len(rows) - len(history),
+        }
     finally:
         conn.close()
 

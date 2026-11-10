@@ -1,6 +1,8 @@
 config/credentials.json
 config/app_config.json
 config/accounts.json
+config/strategies.json
+config/strategy_modules.json
 config/playwright_steam/
 config/playwright_buff/
 

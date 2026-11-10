@@ -418,7 +418,7 @@ def test_non_429_failure_preserves_two_attempts_and_static_proxy(monkeypatch):
     assert not steam_client._history_pool_cooldowns
 
 
-def test_history_pool_excludes_unverified_or_different_currency_accounts(monkeypatch):
+def test_history_pool_includes_accounts_without_wallet_currency_metadata(monkeypatch):
     steam_client = _prepare_client(
         monkeypatch,
         [
@@ -436,7 +436,7 @@ def test_history_pool_excludes_unverified_or_different_currency_accounts(monkeyp
         ],
     )
 
-    assert [account["account_id"] for account in steam_client._history_accounts()] == ["one"]
+    assert [account["account_id"] for account in steam_client._history_accounts()] == ["one", "two", "three"]
 
 
 def test_history_credentials_are_filtered_and_upserted(tmp_path, monkeypatch):

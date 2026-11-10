@@ -60,17 +60,30 @@ def _fetch_exchange_rates(base: str = "CNY", targets: Optional[list] = None) -> 
         if data.get("result") != "success":
             return None
         all_rates = data.get("rates") or {}
-        if not targets:
-            return {}  
+        if not isinstance(all_rates, dict):
+            return None
+        # The endpoint returns foreign-currency units per CNY.  Store the
+        # inverse so callers can multiply a source-currency amount by the
+        # value to obtain CNY.  Saving the complete snapshot avoids making
+        # account-wallet metadata a prerequisite for history conversion.
+        selected = all_rates if not targets else {
+            str(code).upper(): all_rates.get(code)
+            for code in targets
+        }
         out = {}
-        for code in targets:
-            if code not in all_rates:
-                continue
-            rate_val = all_rates[code]
+        out[base.upper()] = 1.0
+        converted_count = 0
+        for code, rate_val in selected.items():
             if not rate_val:
                 continue
-            out[code] = 1.0 / float(rate_val)
-        return out or None
+            try:
+                rate = 1.0 / float(rate_val)
+            except (TypeError, ValueError, ZeroDivisionError):
+                continue
+            if rate > 0:
+                out[str(code).upper()] = rate
+                converted_count += 1
+        return out if converted_count else None
     except Exception:
         return None
 def _save_exchange_rates(rates: dict, base: str = "CNY") -> None:
@@ -96,20 +109,21 @@ def exchange_rate_worker() -> None:
                 log("exchange_rate: 已关闭, system.exchange_rate_refresh_hours<=0", "debug", category="exchange_rate")
                 time.sleep(3600)
                 continue
-            targets = [
-                "USD", "INR", "RUB", "HKD", "EUR",
-                "KZT", "UAH", "PKR", "TRY", "ARS", "AZN",
-                "VND", "IDR", "BRL", "CLP", "JPY", "PHP",
-            ]
-            log(f"exchange_rate: 开始获取, 间隔={interval_h} 小时, 目标={','.join(targets)}", "debug", category="exchange_rate")
-            rates = _fetch_exchange_rates("CNY", targets)
+            log(f"exchange_rate: 开始获取, 间隔={interval_h} 小时, 基准=CNY", "debug", category="exchange_rate")
+            rates = _fetch_exchange_rates("CNY")
             if rates is not None:
                 _save_exchange_rates(rates, "CNY")
-                preview = ", ".join(f"{k}={v:.4f}" for k, v in rates.items())
+                preview = ", ".join(f"{k}={v:.4f}" for k, v in list(rates.items())[:12])
+                if len(rates) > 12:
+                    preview += ", …"
                 log(f"exchange_rate: 已更新 {len(rates)} 个币种: {preview}", "debug", category="exchange_rate")
+                sleep_seconds = max(1, int(interval_h * 3600))
             else:
                 log("exchange_rate: 获取失败或无有效结果", "error", category="exchange_rate")
-            time.sleep(max(1, int(interval_h * 3600)))
+                # Retry a failed initial/refresh request soon; a successful
+                # snapshot still refreshes only at the configured daily cadence.
+                sleep_seconds = 300
+            time.sleep(sleep_seconds)
         except Exception as e:
             log(f"exchange_rate: worker 异常 {format_exception('exchange_rate_worker', e)}, 5 分钟后重试", "error", category="exchange_rate")
             time.sleep(300)
@@ -386,7 +400,14 @@ def sync_account_region_worker() -> None:
         _sync_account_profile_and_region(acc)
         
         from app.services.account_region import refresh_account_region_currency
-        result = refresh_account_region_currency(acc.get("id"), skip_unconfigured=True)
+        # Startup only refreshes the account profile/Cookie.  A wallet is not
+        # required for history reads because those prices are normalized with
+        # the daily exchange-rate snapshot.
+        result = refresh_account_region_currency(
+            acc.get("id"),
+            skip_unconfigured=True,
+            require_wallet=False,
+        )
         if not result.get("ok"):
             if result.get("skipped"):
                 log(
@@ -396,14 +417,14 @@ def sync_account_region_worker() -> None:
                 )
                 return
             log(
-                f"account_region: 同步失败，已暂停自动出售安全许可: {result.get('error') or '未知原因'}",
+                f"account_region: 启动资料同步失败: {result.get('error') or '未知原因'}",
                 "error",
                 category="account",
             )
             return
         log(
             f"account_region: 同步完成 account_id={acc.get('id')} "
-            f"币种={result.get('currency_code')} 派生地区={result.get('region_code')}",
+            f"币种检查={result.get('status') or 'skipped'}",
             "debug",
             category="account",
         )
