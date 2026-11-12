@@ -16,6 +16,7 @@ from app.pipeline_steps import (
     TARGET_REACHED,
     SKIP_NO_FAILED,
     SKIP_VERIFICATION_FAILED,
+    PurchaseAbandoned,
     PurchaseCoolingDown,
     PurchaseOrderCreatedPending,
     PurchaseWriteResultUnknown,
@@ -136,7 +137,10 @@ def _process_deals_for_target(
     skipped_this_round: set,
     stability_failed_this_round: set,
     is_time_allowed=None,
+    abandoned_goods_ids=None,
 ):
+    if abandoned_goods_ids is None:
+        abandoned_goods_ids = set()
     acc = current_acc
     bought = total_bought
     n_filtered = len(filtered)
@@ -168,7 +172,7 @@ def _process_deals_for_target(
         chosen, new_stability_failed = pick_stable_item(
             filtered, cfg, steam_client, analyzer, ctx.is_stop_requested,
             log_fn=ctx.log,
-            exclude_goods_ids=failed_goods_ids | skipped_this_round | stability_failed_this_round,
+            exclude_goods_ids=failed_goods_ids | skipped_this_round | stability_failed_this_round | abandoned_goods_ids,
             buff_client=buyer,
             observation_only=observation_only,
             item_report_fn=getattr(ctx, "item_report", None),
@@ -223,6 +227,12 @@ def _process_deals_for_target(
                 ctx.state.append_purchase,
                 **checkout_kwargs,
             )
+        except PurchaseAbandoned:
+            gid = chosen.get("goods_id")
+            if gid is not None:
+                abandoned_goods_ids.add(gid)
+            ctx.log("已放弃本次采买，本次任务内跳过该饰品；请自行取消 BUFF 支付清单", "info", category="buff")
+            continue
         except Exception as exc:
             committed_amount = float(
                 getattr(exc, "committed_amount", 0.0) or 0.0
@@ -383,6 +393,7 @@ def _run_pipeline(config: dict) -> None:
     analyzer = StabilityAnalyzer(usd_to_cny=USD_TO_CNY_DEFAULT)
     buyer = None if observation_only else create_buff_client_from_config(cred_buff, cfg)
     failed_goods_ids_ttl: dict = {}
+    abandoned_goods_ids: set = set()
 
     while True:
         if ctx.is_stop_requested():
@@ -460,6 +471,7 @@ def _run_pipeline(config: dict) -> None:
                 set(),
                 set(),
                 is_time_allowed=time_window_is_open,
+                abandoned_goods_ids=abandoned_goods_ids,
             )
             if stopped is TIME_WINDOW_CLOSED:
                 continue

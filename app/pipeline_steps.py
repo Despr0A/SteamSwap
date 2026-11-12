@@ -20,6 +20,7 @@ from app.services.steam_client import SteamClient
 from app.services.analysis_client import StabilityAnalyzer
 from app.services.buff_client import count_lowest_price_orders, first_order_at_price
 from app.services.buff_checkout_guard import (
+    acknowledge_checkout,
     begin_checkout,
     buff_activity_guard,
     get_unresolved_checkout,
@@ -204,6 +205,10 @@ class _PurchaseAttemptStatus(Enum):
     RISK = "risk"
     TIME_WINDOW_CLOSED = "time_window_closed"
     FAILED = "failed"
+
+
+class PurchaseAbandoned(RuntimeError):
+    """The user declined this item and will cancel the payment externally."""
 
 
 class PurchaseFlowHalted(RuntimeError):
@@ -1506,9 +1511,9 @@ def _do_payment_notify_and_wait(
     is_stop_requested: callable,
     log_fn: Optional[Callable[[str, str], None]],
     on_entering_payment: Optional[Callable[[], None]] = None,
-) -> bool:
+) -> Optional[bool]:
     """Handle notification and wait for user payment confirmation.
-    Returns True if user confirmed, False on cancel/timeout/stop.
+    Returns True if confirmed, False if abandoned, None on timeout/stop.
     """
     name = item.get("name", "")
     set_pending_payment({
@@ -1518,6 +1523,8 @@ def _do_payment_notify_and_wait(
         "order_id": order_id,
     })
     console_confirmation: Optional[threading.Event] = None
+    payment_finished = threading.Event()
+    email_confirmation_lock = threading.Lock()
     terminal_result = "付款等待异常结束，请查看应用日志核对订单状态。"
     try:
         if on_entering_payment:
@@ -1583,23 +1590,32 @@ def _do_payment_notify_and_wait(
         timeout_sec = int(notify_cfg.get("email_timeout_seconds", 300))
         if email_user and email_pass:
             def _email_waiter() -> None:
-                res = wait_email_command(config, timeout_seconds=timeout_sec, is_stop_requested=is_stop_requested, log_fn=log_fn)
-                confirm_payment(res == "success")
+                res = wait_email_command(
+                    config, timeout_seconds=timeout_sec,
+                    is_stop_requested=lambda: payment_finished.is_set() or is_stop_requested(),
+                    log_fn=log_fn,
+                )
+                with email_confirmation_lock:
+                    if not payment_finished.is_set() and res in {"success", "fail"}:
+                        confirm_payment(res == "success")
             t = threading.Thread(target=_email_waiter, daemon=True)
             t.start()
-            ok = wait_payment_confirm()
-        else:
-            ok = wait_payment_confirm(timeout_seconds=timeout_sec)
+        ok = wait_payment_confirm(timeout_seconds=timeout_sec)
         if is_stop_requested():
+            ok = None
             terminal_result = "付款等待已停止，请核对订单状态。"
         elif ok:
             terminal_result = "已收到付款确认，继续处理订单；无需再输入 y/n。"
+        elif ok is False:
+            terminal_result = "已放弃本次采买，将跳过该饰品；请自行取消 BUFF 支付清单。"
         else:
-            terminal_result = "付款等待已结束：已取消或超时，请核对订单状态。"
+            terminal_result = "付款等待已超时，请核对订单状态。"
         if log_fn:
             log_fn(f"[Buff]   → 用户确认={'成功' if ok else '取消/失败'}", "info")
         return ok
     finally:
+        with email_confirmation_lock:
+            payment_finished.set()
         if console_confirmation is not None:
             console_confirmation.set()
         set_pending_payment(None)
@@ -1630,6 +1646,9 @@ def _do_batch_wait_finalize_and_append(
         set_pending_payment, wait_payment_confirm, confirm_payment,
         is_stop_requested, log_fn, on_entering_payment,
     )
+    if ok is False and not is_stop_requested():
+        acknowledge_checkout(checkout_intent_id, reason="user_abandoned_payment")
+        raise PurchaseAbandoned("用户主动放弃本次采买")
     if is_stop_requested() or not ok:
         update_checkout(
             expected_intent_id=checkout_intent_id,
@@ -1884,6 +1903,9 @@ def _do_wait_payment_and_append(
         set_pending_payment, wait_payment_confirm, confirm_payment,
         is_stop_requested, log_fn, on_entering_payment,
     )
+    if ok is False and not is_stop_requested():
+        acknowledge_checkout(checkout_intent_id, reason="user_abandoned_payment")
+        raise PurchaseAbandoned("用户主动放弃本次采买")
     if is_stop_requested() or not ok:
         return None
     paid_at = time.time()

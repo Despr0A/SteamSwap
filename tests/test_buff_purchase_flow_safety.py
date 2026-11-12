@@ -400,7 +400,8 @@ def test_stale_buff_cache_is_refreshed_before_locking():
     assert item["_buff_sell_orders"][0]["id"] == "new-order"
 
 
-def test_single_order_payment_cancel_does_not_lock_again():
+@pytest.mark.parametrize("wait_result, stopped", [(False, False), (None, False), (False, True)])
+def test_single_order_payment_cancel_does_not_lock_again(wait_result, stopped):
     class BuffClient:
         _pay_method = "alipay"
 
@@ -420,9 +421,12 @@ def test_single_order_payment_cancel_does_not_lock_again():
             }
 
     client = BuffClient()
-    kwargs, pending, purchases = _checkout_args(wait_result=False)
+    kwargs, pending, purchases = _checkout_args(wait_result=wait_result)
+    kwargs["is_stop_requested"] = lambda: stopped
 
-    with pytest.raises(steps.PurchaseOrderCreatedPending) as exc_info:
+    abandoned = wait_result is False and not stopped
+    expected = steps.PurchaseAbandoned if abandoned else steps.PurchaseOrderCreatedPending
+    with pytest.raises(expected):
         steps.lock_and_confirm_payment(
             client,
             _item([{"id": "sell-1", "price": "10.0"}]),
@@ -430,10 +434,72 @@ def test_single_order_payment_cancel_does_not_lock_again():
             **kwargs,
         )
 
-    assert exc_info.value.order_id == "bill-1"
+    from app.services.buff_checkout_guard import get_unresolved_checkout
+
+    if abandoned:
+        assert get_unresolved_checkout() is None
+    else:
+        assert get_unresolved_checkout()["order_id"] == "bill-1"
     assert client.lock_calls == 1
     assert pending[-1] is None
     assert purchases == []
+
+
+def test_browser_abandonment_continues_with_next_item_across_rounds(monkeypatch):
+    from app import state as state_module
+    from app.routes import status
+    from app.services.buff_checkout_guard import get_unresolved_checkout
+
+    current = state_module.State()
+    purchases = []
+    locked = []
+    rejected = _item([{"id": "sell-1", "price": "10.0"}])
+    accepted = {**_item([{"id": "sell-2", "price": "10.0"}]), "goods_id": 456}
+    rounds = iter([([rejected], False), ([rejected, accepted], False)])
+
+    class BuffClient:
+        _pay_method = "alipay"
+
+        def lock_and_get_pay_url(self, _game, goods_id, *_args):
+            locked.append(goods_id)
+            assert len(locked) <= 2, "abandoned goods must not be retried"
+            return {"success": True, "order_id": str(goods_id), "pay_url": "https://pay.invalid/test"}
+
+    original_wait = current.wait_payment_confirm
+
+    def wait(**kwargs):
+        order_id = current.get_pending_payment()["order_id"]
+        status.api_confirm_payment(status.ConfirmBody(ok=order_id == "456"))
+        return original_wait(**kwargs)
+
+    monkeypatch.setattr(state_module, "get_state", lambda: current)
+    monkeypatch.setattr(pipeline_module, "get_state", lambda: current)
+    monkeypatch.setattr(current, "wait_payment_confirm", wait)
+    monkeypatch.setattr(current, "append_purchase", purchases.append)
+    monkeypatch.setattr(pipeline_module, "get_buff_credentials", lambda: {"cookies": "test"})
+    monkeypatch.setattr(pipeline_module, "apply_strategy_to_config", lambda cfg, _kind: {
+        **cfg, "_strategy_runtime": {"buy": {"enabled_modules": []}},
+    })
+    monkeypatch.setattr(pipeline_module, "create_buff_client_from_config", lambda *_args: BuffClient())
+    monkeypatch.setattr(pipeline_module, "SteamClient", lambda: object())
+    monkeypatch.setattr(pipeline_module, "StabilityAnalyzer", lambda **_kwargs: object())
+    monkeypatch.setattr(pipeline_module, "get_proxy_manager", lambda: SimpleNamespace(is_proxy_enabled=lambda: False))
+    monkeypatch.setattr(pipeline_module, "get_network_checker", lambda: SimpleNamespace(report_success=lambda: None))
+    monkeypatch.setattr(pipeline_module, "_fetch_and_filter_deals", lambda *_args: next(rounds))
+    monkeypatch.setattr(pipeline_module.PipelineContext, "wait_retry", lambda *_args: False)
+    monkeypatch.setattr(pipeline_module, "pick_stable_item", lambda items, *_args, **kwargs: (
+        next((item for item in items if item["goods_id"] not in kwargs["exclude_goods_ids"]), None), set(),
+    ))
+    monkeypatch.setattr(steps, "_start_console_payment_confirmation", lambda *_args: None)
+    monkeypatch.setattr(steps, "_notify_windows_pending_order", lambda *_args: None)
+
+    pipeline_module._run_pipeline({"pipeline": {"target_balance": 10, "time_limit_enabled": False}})
+
+    assert locked == [123, 456]
+    assert [record["goods_id"] for record in purchases] == [456]
+    assert current.get_pending_payment() is None
+    assert get_unresolved_checkout() is None
+    assert current.get_status()["status"] == "idle"
 
 
 def test_rate_limit_is_not_swallowed_or_retried():
@@ -643,7 +709,8 @@ def test_transport_unknown_write_is_converted_to_terminal_purchase_state():
     assert client.lock_calls == 1
 
 
-def test_batch_payment_cancel_does_not_fallback_to_single_order():
+@pytest.mark.parametrize("wait_result, stopped", [(False, False), (None, False), (False, True)])
+def test_batch_payment_cancel_does_not_fallback_to_single_order(wait_result, stopped):
     class BuffClient:
         _pay_method = "wechat"
 
@@ -673,9 +740,12 @@ def test_batch_payment_cancel_does_not_fallback_to_single_order():
             return []
 
     client = BuffClient()
-    kwargs, _pending, purchases = _checkout_args(wait_result=False)
+    kwargs, _pending, purchases = _checkout_args(wait_result=wait_result)
+    kwargs["is_stop_requested"] = lambda: stopped
 
-    with pytest.raises(steps.PurchaseOrderCreatedPending) as exc_info:
+    abandoned = wait_result is False and not stopped
+    expected = steps.PurchaseAbandoned if abandoned else steps.PurchaseOrderCreatedPending
+    with pytest.raises(expected):
         steps.lock_and_confirm_payment(
             client,
             _item([
@@ -686,7 +756,12 @@ def test_batch_payment_cancel_does_not_fallback_to_single_order():
             **kwargs,
         )
 
-    assert exc_info.value.batch_id == "batch-1"
+    from app.services.buff_checkout_guard import get_unresolved_checkout
+
+    if abandoned:
+        assert get_unresolved_checkout() is None
+    else:
+        assert get_unresolved_checkout()["batch_id"] == "batch-1"
     assert client.batch_calls == 1
     assert client.single_calls == 0
     assert client.finalize_calls == 0

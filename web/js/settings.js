@@ -368,7 +368,7 @@ async function confirmPayment(ok) {
   try {
     await fetchJson(API + "/confirm_payment", { method: "POST", body: JSON.stringify({ ok }) });
     el("pending-payment")?.classList.add("hidden");
-    toast(ok ? "已确认付款" : "已标记为失败");
+    toast(ok ? "已确认付款" : "已放弃，将跳过该饰品；请自行取消 BUFF 支付清单");
     refreshStatus();
   } catch (e) {
     toast("操作失败", e.message || "请稍后再试");

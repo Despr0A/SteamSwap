@@ -234,7 +234,7 @@ def test_browser_confirmation_updates_terminal(monkeypatch, capsys, confirmed):
     assert reader_finished.is_set()
     assert current.get_pending_payment() is None
     output = capsys.readouterr().out
-    assert ("已收到付款确认，继续处理订单" if confirmed else "付款等待已结束：已取消或超时") in output
+    assert ("已收到付款确认，继续处理订单" if confirmed else "已放弃本次采买，将跳过该饰品") in output
 
 
 @pytest.mark.parametrize("outcome", ["timeout", "stop", "error"])
@@ -247,7 +247,7 @@ def test_terminal_reports_payment_wait_ending(monkeypatch, capsys, outcome):
     def wait(**_kwargs):
         if outcome == "error":
             raise RuntimeError("private error details")
-        return False
+        return None
 
     def run():
         return pipeline_steps._do_payment_notify_and_wait(
@@ -260,9 +260,9 @@ def test_terminal_reports_payment_wait_ending(monkeypatch, capsys, outcome):
         with pytest.raises(RuntimeError, match="private error details"):
             run()
     else:
-        assert run() is False
+        assert run() is None
     expected = {
-        "timeout": "付款等待已结束：已取消或超时",
+        "timeout": "付款等待已超时",
         "stop": "付款等待已停止",
         "error": "付款等待异常结束，请查看应用日志核对订单状态",
     }
@@ -270,6 +270,74 @@ def test_terminal_reports_payment_wait_ending(monkeypatch, capsys, outcome):
     assert expected[outcome] in output
     assert "private error details" not in output
     assert pending[-1] is None
+
+
+@pytest.mark.parametrize("email_result, expected", [("timeout", None), ("fail", False), ("success", True)])
+def test_email_timeout_is_not_an_explicit_abandonment(monkeypatch, email_result, expected):
+    from types import SimpleNamespace
+    from app import pipeline_steps, state
+
+    current = state.State()
+    monkeypatch.setattr(pipeline_steps, "_start_console_payment_confirmation", lambda *_args: None)
+    monkeypatch.setattr(pipeline_steps, "wait_email_command", lambda *_args, **_kwargs: email_result)
+    monkeypatch.setattr(pipeline_steps.threading, "Thread", lambda target, **_kwargs: SimpleNamespace(start=target))
+    result = pipeline_steps._do_payment_notify_and_wait(
+        {"name": "Test Item"}, {"notify": {
+            "windows_toast_enabled": False, "email_user": "test", "email_pass": "test",
+            "email_timeout_seconds": 0,
+        }},
+        1.0, 1, "https://pay.invalid/test", "alipay", "order-1", 0.0,
+        current.set_pending_payment, current.wait_payment_confirm, current.confirm_payment,
+        current.is_stop_requested, None,
+    )
+    assert result is expected
+
+
+def test_old_email_listener_cannot_confirm_the_next_order(monkeypatch):
+    import threading
+    from app import pipeline_steps, state
+
+    current = state.State()
+    started = threading.Event()
+    release = threading.Event()
+    threads = []
+    original_thread = threading.Thread
+
+    def start_thread(**kwargs):
+        thread = original_thread(**kwargs)
+        threads.append(thread)
+        return thread
+
+    def email_wait(*_args, **kwargs):
+        started.set()
+        assert release.wait(2)
+        assert kwargs["is_stop_requested"]()
+        return "success"
+
+    def wait(**kwargs):
+        assert started.wait(2)
+        current.confirm_payment(False)
+        return current.wait_payment_confirm(**kwargs)
+
+    monkeypatch.setattr(pipeline_steps, "_start_console_payment_confirmation", lambda *_args: None)
+    monkeypatch.setattr(pipeline_steps, "wait_email_command", email_wait)
+    monkeypatch.setattr(pipeline_steps.threading, "Thread", start_thread)
+    try:
+        assert pipeline_steps._do_payment_notify_and_wait(
+            {"name": "Test Item"}, {"notify": {
+                "windows_toast_enabled": False, "email_user": "test", "email_pass": "test",
+            }},
+            1.0, 1, "https://pay.invalid/test", "alipay", "order-1", 0.0,
+            current.set_pending_payment, wait, current.confirm_payment,
+            current.is_stop_requested, None,
+        ) is False
+        current.set_pending_payment({"order_id": "order-2"})
+    finally:
+        release.set()
+        for thread in threads:
+            thread.join(2)
+            assert not thread.is_alive()
+    assert current.wait_payment_confirm(timeout_seconds=0) is None
 
 
 def test_console_payment_command_accepts_paid_and_cancel_values():
