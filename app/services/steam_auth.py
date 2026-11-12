@@ -563,6 +563,8 @@ def steam_cookie_refresh_reason(credentials: dict, *, now: Optional[float] = Non
     metadata = cookie_metadata(cookies)
     if metadata.get("expires_at", now + 1) <= now:
         return "expired"
+    if metadata.get("expires_at", now + 901) <= now + 900:
+        return "expiring"
     try:
         refreshed = float(credentials.get("cookie_refreshed_at") or metadata.get("issued_at") or 0)
     except (ValueError, TypeError):
@@ -572,23 +574,59 @@ def steam_cookie_refresh_reason(credentials: dict, *, now: Optional[float] = Non
     return ""
 
 
-def try_steam_auto_relogin(*, force: bool = False, account_id: Optional[str] = None) -> tuple:
+def try_steam_auto_relogin(*, force: bool = False, account_id: Optional[str] = None, background: bool = False) -> tuple:
     global _auto_relogin_last_success
     if not _auto_relogin_lock.acquire(blocking=False):
         log("auto_relogin: 另一个自动登录正在进行，跳过", "info", category="steam")
         return False, "busy", "另一个自动登录正在进行"
     try:
-        return _try_steam_auto_relogin_impl(force=force, account_id=account_id)
+        return _try_steam_auto_relogin_impl(force=force, account_id=account_id, background=background)
     finally:
         _auto_relogin_lock.release()
-def _try_steam_auto_relogin_impl(*, force: bool = False, account_id: Optional[str] = None) -> tuple:
+def _background_refresh_blocked(account_id: str) -> bool:
+    from app.pipeline import is_shutdown_pending
+    from app.services.buff_checkout_guard import get_unresolved_checkout
+    from app.state import get_status
+
+    if is_shutdown_pending():
+        return True
+    current = get_current_account() or {}
+    return current.get("id") == account_id and (
+        get_unresolved_checkout() is not None or get_status().get("step") == "CHECKOUT_PENDING"
+    )
+
+
+def _save_background_credentials(account: dict, existing: dict, cookies: str, session_id: str, steam_id: str) -> tuple:
+    from app.services.buff_auth import get_buff_auth_lock
+    from app.services.buff_checkout_guard import buff_activity_guard
+
+    # Only publishing credentials needs to serialize with checkout writes.
+    # The remote login runs independently of the trading pipeline.
+    with get_buff_auth_lock():
+        with buff_activity_guard():
+            account_id = account["id"]
+            current = get_account(account_id) or {}
+            if any(current.get(key) != account.get(key) for key in ("username", "password", "steam_id")):
+                return False, "superseded", "账号信息已更改，丢弃旧登录结果"
+            if get_steam_credentials_for_account(current).get("cookies") != existing.get("cookies"):
+                return False, "superseded", "凭证已更新，丢弃旧登录结果"
+            if _background_refresh_blocked(account_id):
+                return False, "deferred", "当前账号正在结账，延后更新凭证"
+            update_steam_creds(cookies, session_id, steam_id, account_id=account_id)
+    return True, "auto_ok", "已自动登录并更新凭证"
+
+
+def _try_steam_auto_relogin_impl(*, force: bool = False, account_id: Optional[str] = None, background: bool = False) -> tuple:
     global _auto_relogin_last_success
     explicit_account = account_id is not None
     cur = get_account(account_id) if explicit_account else get_current_account()
     if not cur:
         log("auto_relogin: 未设置当前账号", "warn", category="steam")
         return False, "no_account", "未设置当前 Steam 账号，无法自动登录"
+    cur = dict(cur)
     account_id = cur.get("id")
+    if background and _background_refresh_blocked(account_id):
+        return False, "deferred", "当前账号正在结账，延后刷新"
     username = (cur.get("username") or "").strip()
     password = (cur.get("password") or "").strip()
     if not username or not password:
@@ -635,6 +673,8 @@ def _try_steam_auto_relogin_impl(*, force: bool = False, account_id: Optional[st
         if not steam_id or (cur.get("steam_id") and steam_id != cur["steam_id"]):
             log(f"auto_relogin: account={account_id} 新凭证身份与账号不一致，拒绝保存", "error", category="steam")
             return False, "identity_mismatch", "新 Cookie 的 Steam ID 与目标账号不一致"
+        if background:
+            return _save_background_credentials(cur, existing, cookie_str, session_id or "", steam_id)
         update_steam_creds(cookie_str, session_id or "", steam_id, account_id=account_id)
         try:
             dn, av = fetch_steam_profile_via_api(steam_id or cur.get("steam_id", ""), cookie_str)

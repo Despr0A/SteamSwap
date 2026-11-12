@@ -87,58 +87,64 @@ def test_missing_legacy_timestamp_uses_token_issue_time():
     assert steam_cookie_refresh_reason({"cookies": cookie(issued=300000)}, now=1000000) == "seven_days"
 
 
-def test_periodic_refresh_is_independent_of_buff_opt_in_and_respects_safe_gate(monkeypatch):
-    from app.services import workers, steam_auth
-    from contextlib import nullcontext
+def test_periodic_refresh_is_independent_of_buff_opt_in_and_running_pipeline(monkeypatch):
+    from app.services import workers, steam_auth, steam_refresh
+    account = {"id": "one", "steam_id": "1", "username": "u", "password": "pw"}
     calls = []
-    monkeypatch.setattr(workers, "_session_keepalive_is_safe", lambda: True)
-    monkeypatch.setattr("app.pipeline.exclusive_pipeline_maintenance", lambda *args: nullcontext())
-    monkeypatch.setattr(workers, "get_current_account", lambda: {"id": "one", "steam_id": "1", "username": "u", "password": "pw"})
-    monkeypatch.setattr(workers, "list_accounts", lambda: [{"id": "one", "steam_id": "1", "username": "u", "password": "pw"}])
-    monkeypatch.setattr(steam_auth, "get_steam_credentials", lambda: {"cookies": cookie(expires=1)})
+    monkeypatch.setattr(steam_refresh, "_pending", {})
+    monkeypatch.setattr(steam_refresh, "get_account", lambda aid: account)
+    monkeypatch.setattr(steam_refresh, "load_app_config_validated", lambda: {})
+    monkeypatch.setattr(workers, "_session_keepalive_is_safe", lambda: False)
+    monkeypatch.setattr(workers, "list_accounts", lambda: [account])
+    monkeypatch.setattr("app.pipeline.is_shutdown_pending", lambda: False)
     monkeypatch.setattr(steam_auth, "get_steam_credentials_for_account", lambda account: {"cookies": cookie(expires=1)})
     monkeypatch.setattr(steam_auth, "try_steam_auto_relogin", lambda **kwargs: calls.append(kwargs) or (True, "auto_ok", "ready"))
     workers._refresh_due_steam_cookies()
-    assert calls == [{"force": True, "account_id": "one"}]
-    calls.clear()
-    monkeypatch.setattr(workers, "_session_keepalive_is_safe", lambda: False)
-    workers._refresh_due_steam_cookies()
-    assert calls == []
+    assert calls == [{"force": True, "account_id": "one", "background": True}]
 
 
-def test_expired_history_cookie_refreshes_before_price_request(monkeypatch, tmp_path):
-    from app.services import steam_client, steam_auth
+def test_expired_history_cookie_resumes_after_background_refresh(monkeypatch, tmp_path):
+    from app.services import steam_client, steam_auth, steam_refresh
     from app import steam_history
     from tests.test_steam_history_account_pool import _prepare_client
     old = cookie(expires=1)
     new = cookie(expires=9999999999)
-    _prepare_client(monkeypatch, [{"account_id": "one", "steam_id": "1", "cookies": old}])
-    monkeypatch.setattr("app.accounts.get_current_account", lambda: {"id": "one", "steam_id": "1"})
+    accounts = [{"account_id": "one", "steam_id": "1", "cookies": old}]
+    _prepare_client(monkeypatch, accounts)
     monkeypatch.setattr(steam_history, "_HISTORY_DB_PATH", tmp_path / "history.db")
+    monkeypatch.setattr("app.pipeline.is_shutdown_pending", lambda: False)
+    monkeypatch.setattr(steam_auth, "get_steam_credentials_for_account", lambda account: accounts[0])
     calls = []
-    monkeypatch.setattr(steam_auth, "try_steam_auto_relogin", lambda **kwargs: calls.append("login") or (True, "auto_ok", "ready"))
-    monkeypatch.setattr(steam_client, "get_steam_credentials", lambda: {"steam_id": "1", "cookies": new})
+    def relogin(**kwargs):
+        assert kwargs == {"force": True, "account_id": "one", "background": True}
+        calls.append("login")
+        accounts[0]["cookies"] = new
+        return True, "auto_ok", "ready"
+    monkeypatch.setattr(steam_auth, "try_steam_auto_relogin", relogin)
     def fetch(*args, **kwargs):
         calls.append("history")
         assert kwargs["cookies"] == new
         return {"history": [["Oct 10 2026 01: +0", 1, "1"]], "currency": "CNY"}, 200
     monkeypatch.setattr(steam_client, "_fetch_history", fetch)
-    assert steam_client.SteamClient().fetch_history("Item")
+    client = steam_client.SteamClient()
+    assert client.fetch_history("Item") is None
+    assert calls == []
+    steam_refresh.process_pending()
+    assert client.fetch_history("Item")
     assert calls == ["login", "history"]
 
 
-def test_failed_refresh_does_not_request_history_with_expired_cookie(monkeypatch, tmp_path):
+def test_pending_refresh_does_not_request_history_with_expired_cookie(monkeypatch, tmp_path):
     from app.services import steam_client, steam_auth
     from app import steam_history
     from tests.test_steam_history_account_pool import _prepare_client
     _prepare_client(monkeypatch, [{"account_id": "one", "steam_id": "1", "cookies": cookie(expires=1)}])
-    monkeypatch.setattr("app.accounts.get_current_account", lambda: {"id": "one", "steam_id": "1"})
     monkeypatch.setattr(steam_history, "_HISTORY_DB_PATH", tmp_path / "history.db")
-    monkeypatch.setattr(steam_auth, "try_steam_auto_relogin", lambda **kwargs: (False, "network_error", "timeout"))
+    monkeypatch.setattr(steam_auth, "try_steam_auto_relogin", lambda **kwargs: pytest.fail("synchronous login"))
     monkeypatch.setattr(steam_client, "_fetch_history", lambda *args, **kwargs: pytest.fail("expired cookie sent"))
     client = steam_client.SteamClient()
     assert client.fetch_history("Item") is None
-    assert client.get_last_history_error("Item")["code"] == "COOKIE_REFRESH_FAILED"
+    assert client.get_last_history_error("Item")["code"] == "ACCOUNTS_REFRESH_PENDING"
 
 
 def test_background_login_keeps_current_account_and_saves_target_identity(monkeypatch):

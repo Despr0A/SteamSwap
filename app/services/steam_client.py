@@ -20,7 +20,6 @@ from steam.client import (
 steam_timeout = 15
 steam_retry_attempts = 2
 steam_account_cooldown_seconds = 5 * 60
-steam_account_invalid_cooldown_seconds = 60 * 60
 steam_all_accounts_wait_seconds = 30
 _history_cache: Dict[str, tuple] = {}
 # Historical price points are persisted and used for multi-day stability
@@ -81,6 +80,7 @@ def _select_history_accounts() -> list[dict]:
     accounts = _history_accounts()
     if not accounts:
         accounts = [{"account_id": "anonymous", "cookies": "", "_key": "anonymous"}]
+    accounts = [a for a in accounts if not _history_auth_unavailable(a)]
     now = time.monotonic()
     with _history_pool_lock:
         available = [a for a in accounts if _history_pool_cooldowns.get(a["_key"], 0) <= now]
@@ -120,21 +120,13 @@ def _wait_for_history_accounts() -> bool:
     return not is_stop_requested()
 
 
-def _can_auto_relogin_account(account: dict) -> bool:
-    """Only refresh credentials for the account selected by the auth service."""
-    account_id = str(account.get("account_id") or "").strip()
-    if not account_id:
-        return False
-    try:
-        from app.accounts import get_current_account
+def _history_auth_unavailable(account: dict) -> bool:
+    from app.services import steam_refresh
 
-        current = get_current_account() or {}
-        if account_id == "primary":
-            steam_id = str(account.get("steam_id") or "").strip()
-            return bool(steam_id) and steam_id == str(current.get("steam_id") or "").strip()
-        return account_id == str(current.get("id") or "").strip()
-    except Exception:
-        return False
+    expired = _credential_diagnostics(account).get("cookie_expired")
+    if expired:
+        steam_refresh.request_refresh(account, "expired")
+    return bool(expired or steam_refresh.is_history_account_blocked(account))
 
 
 def _resolve_history_currency(result, account: dict):
@@ -200,7 +192,7 @@ class SteamClient:
             "diagnostic": self.get_last_history_error(market_hash_name, app_id),
         })
 
-    def _record_history_error(self, code: str, stage: str, **details) -> dict:
+    def _record_history_error(self, code: str, stage: str, *, emit_log: bool = True, **details) -> dict:
         from app.state import log
         error = {
             "request_id": getattr(self._request_context, "request_id", ""),
@@ -216,7 +208,8 @@ class SteamClient:
         self._request_context.error_counts = counts
         error["failure_counts"] = dict(counts)
         self._request_context.error = error
-        log(f"[SteamClient] {one_line(error)}", "warn", category="steam", diagnostic=error)
+        if emit_log:
+            log(f"[SteamClient] {one_line(error)}", "warn", category="steam", diagnostic=error)
         return error
     def fetch_history(
         self,
@@ -313,13 +306,19 @@ class SteamClient:
         from utils.proxy_manager import get_proxy_manager
         pm = get_proxy_manager()
         request_context = f"request_id={getattr(self._request_context, 'request_id', '')} item={market_hash_name} app_id={app_id}"
-        auth_relogin_attempted = False
         while True:
             if is_stop_requested():
                 self._record_history_error("CANCELLED", "stop", action="任务已停止")
                 return None
             accounts = _select_history_accounts()
             if not accounts:
+                pool = _history_accounts()
+                if pool and all(_history_auth_unavailable(a) for a in pool):
+                    self._record_history_error(
+                        "ACCOUNTS_REFRESH_PENDING", "account_select", emit_log=False,
+                        action="账号暂不可用，后台刷新或等待人工登录；暂缓本次候选检查",
+                    )
+                    return None
                 if not _wait_for_history_accounts():
                     if not getattr(self._request_context, "error", None):
                         self._record_history_error("ACCOUNTS_COOLING_DOWN", "account_select", action="等待账号冷却结束或核查鉴权")
@@ -330,20 +329,8 @@ class SteamClient:
                 if is_stop_requested():
                     return None
                 cookies = str(account.get("cookies") or "").strip() or None
-                if _credential_diagnostics(account).get("cookie_expired"):
-                    if auth_relogin_attempted or not _can_auto_relogin_account(account):
-                        self._record_history_error("COOKIE_EXPIRED", "auth_refresh", account=account.get("account_id"), action="跳过过期 Cookie，等待空闲时定期刷新或重新登录该账号")
-                        continue
-                    from app.services.steam_auth import try_steam_auto_relogin
-                    auth_relogin_attempted = True
-                    log(f"[SteamClient] {request_context} account={account.get('account_id')} Cookie 已过期，请求历史价格前重新登录", "info", category="steam")
-                    ok, status, message = try_steam_auto_relogin(force=True)
-                    refreshed = get_steam_credentials() if ok else {}
-                    if refreshed.get("cookies") and refreshed.get("steam_id") == account.get("steam_id"):
-                        cookies = refreshed["cookies"]
-                    else:
-                        self._record_history_error("COOKIE_REFRESH_FAILED", "auth_refresh", account=account.get("account_id"), detail=f"status={status} {message}", action="检查登录网络、2FA 与账号凭证")
-                        continue
+                if _history_auth_unavailable(account):
+                    continue
                 used_proxy_urls = set()
                 proxies = pm.get_proxies_for_request()
                 if proxies is None and not pm.is_proxy_enabled():
@@ -418,26 +405,10 @@ class SteamClient:
                         action="按策略重试或切换账号/代理",
                     )
                     self._record_history_error(code, stage, **context)
-                    if (
-                        (status_code in (401, 403) or (status_code == 429 and auth_refresh_redirected))
-                        and not auth_relogin_attempted
-                        and _can_auto_relogin_account(account)
-                    ):
-                        from app.services.steam_auth import try_steam_auto_relogin
-                        auth_relogin_attempted = True
-                        log(f"[SteamClient] {request_context} account={account.get('account_id')} status={status_code} auth_refresh_redirected={auth_refresh_redirected} 尝试恢复会话", "warn", category="steam")
-                        relogin_ok, _relogin_status, relogin_msg = try_steam_auto_relogin(force=True)
-                        if relogin_ok:
-                            refreshed = get_steam_credentials()
-                            refreshed_cookies = str(refreshed.get("cookies") or "").strip()
-                            expected_id = str(account.get("steam_id") or "").strip()
-                            refreshed_id = str(refreshed.get("steam_id") or "").strip()
-                            if refreshed_cookies and expected_id and refreshed_id == expected_id:
-                                cookies = refreshed_cookies
-                                log(f"[SteamClient] {request_context} Steam 会话已恢复，重试当前历史请求", "info", category="steam")
-                                continue
-                            relogin_msg = "刷新凭证为空或 Steam ID 不匹配"
-                        log(f"[SteamClient] {request_context} Steam 会话恢复未完成: {relogin_msg}", "warn", category="steam")
+                    if status_code in (401, 403) or (status_code == 429 and auth_refresh_redirected):
+                        from app.services.steam_refresh import request_refresh
+                        request_refresh(account, "auth_rejected")
+                        break
                     if status_code == 429:
                         rate_limited = True
                         log(
@@ -447,16 +418,6 @@ class SteamClient:
                             "warn",
                             category="steam",
                         )
-                    if status_code in (401, 403):
-                        _cooldown_history_account(account, steam_account_invalid_cooldown_seconds, status_code)
-                        retry_cooling = True
-                        log(
-                            f"[SteamClient] {request_context} 历史账号鉴权失败，冷却 {steam_account_invalid_cooldown_seconds} 秒 "
-                            f"account={account.get('account_id') or account['_key'][:8]} status={status_code}",
-                            "warn",
-                            category="steam",
-                        )
-                        break
                     if rate_limited:
                         proxies = pm.get_next_proxy_dict(excluded=used_proxy_urls) if pm.is_proxy_enabled() else None
                         if proxies is None:

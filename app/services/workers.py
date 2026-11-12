@@ -465,14 +465,9 @@ def _keepalive_sessions() -> None:
 
 
 def _refresh_due_steam_cookies() -> None:
-    from app.pipeline import PipelineMaintenanceBlocked, exclusive_pipeline_maintenance
-    from app.services import steam_auth
+    from app.services import steam_auth, steam_refresh
 
-    if not _session_keepalive_is_safe():
-        return
     for account in list_accounts():
-        if not _session_keepalive_is_safe():
-            return
         account_id = account.get("id")
         if not account_id:
             continue
@@ -481,32 +476,21 @@ def _refresh_due_steam_cookies() -> None:
         expected = str(account.get("steam_id") or "").strip()
         if expected and steam_auth.cookie_metadata(credentials.get("cookies", "")).get("steam_id") != expected:
             reason = "identity_mismatch"
-        if not reason:
-            continue
-        try:
-            with exclusive_pipeline_maintenance("steam_cookie_refresh"):
-                if not _session_keepalive_is_safe():
-                    return
-                log(f"steam_cookie_refresh: account={account_id} reason={reason} 开始重新获取 Cookie", "info", category="steam")
-                ok, status, message = steam_auth.try_steam_auto_relogin(force=True, account_id=account_id)
-                log(
-                    f"steam_cookie_refresh: account={account_id} reason={reason} status={status} {message}",
-                    "info" if ok else "warn", category="steam",
-                )
-        except PipelineMaintenanceBlocked as exc:
-            log(f"steam_cookie_refresh: 维护延后: {exc}", "debug", category="steam")
-            return
-        except Exception as exc:
-            log(format_exception("steam_cookie_refresh", exc, account=account_id, reason=reason), "error", category="steam")
+        if reason:
+            steam_refresh.request_refresh({**account, "cookies": credentials.get("cookies", "")}, reason)
+    steam_refresh.process_pending()
 
 
 def steam_cookie_refresh_worker() -> None:
+    from app.services.steam_refresh import wake
+
     while True:
+        wake.clear()
         try:
             _refresh_due_steam_cookies()
         except Exception as exc:
             log(format_exception("steam_cookie_refresh_worker", exc), "error", category="steam")
-        time.sleep(3600)
+        wake.wait(30)
 
 
 def session_keepalive_worker() -> None:

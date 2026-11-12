@@ -28,7 +28,7 @@ def test_transient_network_failure_does_not_block_recovery(login_state, monkeypa
     assert service.try_steam_auto_relogin(force=True)[0]
 
 
-def test_history_candidates_can_retry_failed_login(login_state, monkeypatch, tmp_path):
+def test_history_candidates_queue_one_background_login(login_state, monkeypatch, tmp_path):
     service, calls = login_state
     from app.services import steam_client
     from app import steam_history
@@ -41,8 +41,8 @@ def test_history_candidates_can_retry_failed_login(login_state, monkeypatch, tmp
     client = steam_client.SteamClient()
     assert client.fetch_history("Item A") is None
     assert client.fetch_history("Item B") is None
-    assert len(calls) == 2
+    assert len(calls) == 0
+    from app.services import steam_refresh
+    assert list(steam_refresh._pending) == ["one"]
     error = client.get_last_history_error("Item B")
-    assert error["code"] == "COOKIE_REFRESH_FAILED"
-    assert "status=network_error" in error["detail"]
-    assert "10054" in error["detail"]
+    assert error["code"] == "ACCOUNTS_REFRESH_PENDING"

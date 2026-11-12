@@ -25,6 +25,14 @@ class _ProxyManager:
 
 def _prepare_client(monkeypatch, accounts):
     from app.services import steam_client
+    from app.services import steam_refresh
+
+    monkeypatch.setattr(steam_refresh, "_pending", {})
+    monkeypatch.setattr(steam_refresh, "load_app_config_validated", lambda: {})
+    monkeypatch.setattr(steam_refresh, "get_account", lambda aid: next((
+        {"id": a["account_id"], "steam_id": a.get("steam_id"), "username": "u", "password": "p"}
+        for a in accounts if a["account_id"] == aid
+    ), None))
 
     steam_client._history_cache.clear()
     steam_client._history_pool_cooldowns.clear()
@@ -78,7 +86,7 @@ def test_history_429_cools_account_and_rotates_to_next(monkeypatch):
     assert "1" in steam_client._history_pool_cooldowns
 
 
-def test_auth_refresh_429_does_not_relogin_a_non_current_history_account(monkeypatch):
+def test_auth_refresh_429_queues_non_current_account_without_sync_login(monkeypatch):
     steam_client = _prepare_client(
         monkeypatch,
         [
@@ -102,32 +110,28 @@ def test_auth_refresh_429_does_not_relogin_a_non_current_history_account(monkeyp
 
     assert steam_client.SteamClient().fetch_history("item") is None
     assert relogin_calls == []
-    assert "2" in steam_client._history_pool_cooldowns
+    from app.services import steam_refresh
+    assert steam_refresh._pending["two"]["reason"] == "auth_rejected"
+    assert "2" not in steam_client._history_pool_cooldowns
 
 
-def test_auth_refresh_429_retries_current_account_with_refreshed_cookies(monkeypatch):
+def test_auth_refresh_429_queues_current_account_and_uses_other_account(monkeypatch):
+    from app.services import steam_refresh
     steam_client = _prepare_client(monkeypatch, [
         {"account_id": "one", "steam_id": "1", "cookies": "account=one"},
+        {"account_id": "two", "steam_id": "2", "cookies": "account=two"},
     ])
     calls = []
-
-    def relogin(**kwargs):
-        assert kwargs == {"force": True}
-        monkeypatch.setattr(steam_client, "get_steam_credentials", lambda: {
-            "steam_id": "1", "cookies": "account=refreshed",
-        })
-        return True, "auto_ok", "ready"
-
     def fetch(*args, **kwargs):
         calls.append(kwargs["cookies"])
-        if len(calls) == 1:
+        if kwargs["cookies"] == "account=one":
             return None, 429, True
         return {"history": [["Oct 10 2026 01: +0", 1, "1"]], "currency": "CNY"}, 200, False
-
-    monkeypatch.setattr("app.services.steam_auth.try_steam_auto_relogin", relogin)
+    monkeypatch.setattr("app.services.steam_auth.try_steam_auto_relogin", lambda **kw: pytest.fail("synchronous login"))
     monkeypatch.setattr(steam_client, "_fetch_history", fetch)
     assert steam_client.SteamClient().fetch_history("item")
-    assert calls == ["account=one", "account=refreshed"]
+    assert calls == ["account=one", "account=two"]
+    assert steam_refresh._pending["one"]["reason"] == "auth_rejected"
     assert steam_client._history_pool_cooldowns == {}
 
 
@@ -389,7 +393,7 @@ def test_cooldown_wait_responds_to_stop_without_network(monkeypatch):
 
 
 @pytest.mark.parametrize("status", [401, 403])
-def test_authentication_failure_keeps_longer_cooldown(monkeypatch, status):
+def test_authentication_failure_quarantines_account_until_refresh(monkeypatch, status):
     steam_client = _prepare_client(monkeypatch, [
         {"account_id": "one", "steam_id": "1", "cookies": "account=one"},
     ])
@@ -397,8 +401,10 @@ def test_authentication_failure_keeps_longer_cooldown(monkeypatch, status):
     monkeypatch.setattr(steam_client, "_wait_for_history_accounts", lambda: False)
     monkeypatch.setattr(steam_client, "_fetch_history", lambda *args, **kwargs: (None, status))
     assert steam_client.SteamClient().fetch_history("Item") is None
-    assert steam_client._history_pool_cooldowns["1"] == 3700
-    assert steam_client._history_pool_cooldown_status["1"] == status
+    from app.services import steam_refresh
+    assert steam_refresh._pending["one"]["reason"] == "auth_rejected"
+    assert steam_client._select_history_accounts() == []
+    assert steam_client._history_pool_cooldown_status == {}
 
 
 def test_non_429_failure_preserves_two_attempts_and_static_proxy(monkeypatch):
