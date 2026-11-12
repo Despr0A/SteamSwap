@@ -1,6 +1,6 @@
 """
 Background worker threads – extracted from api.py.
-Contains receive, listing check, exchange rate,
+Contains receive, exchange rate,
 and account region sync workers.
 """
 import json
@@ -14,7 +14,6 @@ from app.state import (
     log,
     set_buff_auth_expired,
     set_buff_verification_required,
-    set_inventory,
     update_purchase,
     update_purchase_by_id,
 )
@@ -227,139 +226,6 @@ def receive_worker() -> None:
             log(f"receive_worker 异常 {format_exception('receive_worker', e)}", "error", category="receive")
             _worker_alert("receive_worker", e)
             time.sleep(60)
-def listing_check_worker() -> None:
-    from app.steam_listings import fetch_my_listings, fetch_my_history_sold
-    while True:
-        try:
-            cfg = load_app_config_validated()
-            interval = max(60, int(cfg.get("pipeline", {}).get("listing_check_interval_seconds", 600) or 600))
-            time.sleep(interval)
-            if not is_steam_background_allowed():
-                continue
-            purchases = get_purchases()
-            listing_idx = [(i, p) for i, p in enumerate(purchases) if p.get("listing") and p.get("assetid")]
-            if not listing_idx:
-                continue
-            cred = get_steam_credentials()
-            cookies = cred.get("cookies") or ""
-            if not cookies:
-                continue
-            pipeline_cfg = cfg.get("pipeline") or {}
-            steam_debug = bool(pipeline_cfg.get("steam_listings_debug") or pipeline_cfg.get("verbose_debug"))
-            debug_fn = (lambda m: log(m, "debug", category="steam")) if steam_debug else None
-            ok, active_ids, err, _ = fetch_my_listings(cookies, debug_fn=debug_fn)
-            if not ok:
-                continue
-            not_in_active = [(i, p) for i, p in listing_idx if str(p.get("assetid") or "") and str(p.get("assetid") or "") not in active_ids]
-            if steam_debug and not_in_active:
-                log(f"[listing_check] 本地 {len(listing_idx)} 条在售, Steam 活跃 {len(active_ids)}, 可能已售 {len(not_in_active)} 条", "debug", category="steam")
-            if not not_in_active:
-                continue
-            ok2, sold_map, _ = fetch_my_history_sold(cookies, debug_fn=debug_fn)
-            seen_aids = set()
-            sold_updates = 0
-            for _i, p in not_in_active:
-                aid = str(p.get("assetid") or "")
-                if not aid or aid in seen_aids:
-                    continue
-                seen_aids.add(aid)
-                db_id = p.get("_db_id")
-                sale_price_rounded = round(sold_map[aid], 2) if (ok2 and aid in sold_map) else None
-                if db_id:
-                    if sale_price_rounded is not None:
-                        sold_at = time.time()
-                        update_purchase_by_id(db_id, {"sale_price": sale_price_rounded, "sold_at": sold_at, "listing": False, "listing_status": None})
-                        sold_updates += 1
-                    else:
-                        update_purchase_by_id(db_id, {"listing": False, "listing_status": "error"})
-                else:
-                    current = get_purchases()
-                    matched = [j for j, q in enumerate(current) if str(q.get("assetid") or "") == aid]
-                    if sale_price_rounded is not None:
-                        sold_at = time.time()
-                        for idx in matched:
-                            update_purchase(idx, {"sale_price": sale_price_rounded, "sold_at": sold_at, "listing": False, "listing_status": None})
-                        if matched:
-                            sold_updates += 1
-                    else:
-                        for idx in matched:
-                            update_purchase(idx, {"listing": False, "listing_status": "error"})
-            if sold_updates > 0:
-                log(f"[listing_check] 确认售出 {sold_updates} 件，刷新库存并触发自动补挂", "info", category="steam")
-                ok_inv, inv_items, inv_err = scan_cs2_inventory()
-                if ok_inv:
-                    set_inventory(inv_items)
-                    from app.sell_pipeline import run_sell_phase_on_inventory_update
-                    run_sell_phase_on_inventory_update(inv_items)
-                else:
-                    log(f"[listing_check] 售出后刷新库存失败，暂不补挂: {inv_err}", "warn", category="steam")
-        except Exception as e:
-            log(f"listing_check_worker 异常 {format_exception('listing_check_worker', e)}", "error", category="steam")
-            _worker_alert("listing_check_worker", e)
-            time.sleep(60)
-def _currency_code_from_price_text(text: str) -> str:
-    s = text or ""
-    if "¥" in s or "￥" in s or "CNY" in s or "RMB" in s:
-        return "CNY"
-    if "HK" in s and "$" in s:
-        return "HKD"
-    if "₹" in s:
-        return "INR"
-    if "₽" in s:
-        return "RUB"
-    if "€" in s:
-        return "EUR"
-    if "USD" in s or "US$" in s:
-        return "USD"
-    if "$" in s:
-        return "USD"
-    return "CNY"
-def _detect_account_currency_from_history() -> Optional[str]:
-    try:
-        import requests
-        from bs4 import BeautifulSoup
-        cred = get_steam_credentials()
-        cookies_str = cred.get("cookies") or ""
-        if not cookies_str:
-            return None
-        cookies_dict = {}
-        for part in cookies_str.split(";"):
-            s = part.strip()
-            if "=" in s:
-                k, _, v = s.partition("=")
-                cookies_dict[k.strip()] = v.strip()
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/116.0.0.0 Safari/537.36",
-            "Accept": "application/json,text/plain,*/*",
-            "Accept-Language": "zh-CN,zh;q=0.9",
-            "X-Requested-With": "XMLHttpRequest",
-        }
-        params = {"query": "", "start": 0, "count": 50, "contextid": 2, "appid": 730}
-        from app.steam_listings import MYHISTORY_RENDER_URL
-        from utils.proxy_manager import get_proxy_manager
-        pm = get_proxy_manager()
-        proxies = pm.get_proxies_for_request()
-        if proxies:
-            log(f"[account_sync] _detect_account_currency: 使用代理 {proxies.get('http')}", "debug", category="proxy")
-        r = requests.get(MYHISTORY_RENDER_URL, params=params, headers=headers, cookies=cookies_dict, proxies=proxies, timeout=25)
-        if r.status_code != 200:
-            return None
-        data = r.json() if r.text else {}
-        if not data.get("success"):
-            return None
-        html = data.get("results_html") or ""
-        if not html:
-            return None
-        soup = BeautifulSoup(html, "html.parser")
-        price_el = soup.find("span", class_="market_listing_price")
-        if not price_el:
-            return None
-        price_text = (price_el.get_text(" ", strip=True) or "").strip()
-        if not price_text:
-            return None
-        return _currency_code_from_price_text(price_text)
-    except Exception:
-        return None
 def _sync_account_profile_and_region(acc: dict) -> None:
     from app.services.steam_auth import fetch_steam_profile_via_api
     account_id = acc.get("id")

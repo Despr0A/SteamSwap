@@ -340,24 +340,6 @@ function bindEvents() {
       toast("保存失败", e.message || "");
     }
   });
-  el("cfg-steam-listings-debug")?.addEventListener("change", async () => {
-    try {
-      const result = await fetchJson(API + "/config", {
-        method: "POST",
-        body: JSON.stringify({
-          config: {
-            pipeline: {
-              steam_listings_debug: el("cfg-steam-listings-debug").checked,
-            },
-          },
-        }),
-      });
-      if (!result.ok) throw new Error(result.error || "配置写入失败");
-      toast("已保存", "Steam 在售/历史调试 " + (el("cfg-steam-listings-debug").checked ? "已开启" : "已关闭"));
-    } catch (e) {
-      toast("保存失败", e.message || "");
-    }
-  });
   el("btn-export-config")?.addEventListener("click", exportConfig);
   el("btn-data-init")?.addEventListener("click", async () => {
     if (!(await appConfirm("警告：此操作将清空所有数据（包括交易记录、自动挂刀配置、绑定的 Steam 账号与凭据）！\n\n您确定要进行“恢复出厂设置”吗？", { title: "恢复出厂设置", danger: true, confirmText: "继续" }))) {

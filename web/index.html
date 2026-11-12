@@ -439,7 +439,7 @@
         <div class="workspace-section-heading"><h2>常用工作区</h2><span>连接配置、执行与复盘</span></div>
         <div class="workspace-links">
           <button class="workspace-card" data-open-panel="accounts"><span class="workspace-card-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="8" r="4"/><path d="M4 21v-2a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6v2"/></svg></span><span class="workspace-card-title">账号管理 <span aria-hidden="true">↗</span></span><span class="workspace-card-copy">管理 Steam 账号、验证登录状态与 Cookie。</span><span class="workspace-card-link">管理账号 →</span></button>
-          <button class="workspace-card" data-open-panel="strategies"><span class="workspace-card-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M5 3v18M12 3v18M19 3v18M2 8h6m1 8h6m1-10h6"/></svg></span><span class="workspace-card-title">策略中心 <span aria-hidden="true">↗</span></span><span class="workspace-card-copy">组装购入与出售模块，模拟并确认启用策略。</span><span class="workspace-card-link">编辑策略 →</span></button>
+          <button class="workspace-card" data-open-panel="strategies"><span class="workspace-card-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M5 3v18M12 3v18M19 3v18M2 8h6m1 8h6m1-10h6"/></svg></span><span class="workspace-card-title">策略中心 <span aria-hidden="true">↗</span></span><span class="workspace-card-copy">组装购入模块，模拟并确认启用策略。</span><span class="workspace-card-link">编辑策略 →</span></button>
           <button class="workspace-card" data-open-panel="debug"><span class="workspace-card-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 8h8M8 12h8M8 16h4"/></svg></span><span class="workspace-card-title">运行报告 <span aria-hidden="true">↗</span></span><span class="workspace-card-copy">查看饰品筛选结果、关联网络请求与运行日志。</span><span class="workspace-card-link">查看报告 →</span></button>
         </div>
         <div class="workspace-checklist"><div><span class="section-kicker">BEFORE YOU START</span><h2>启动前，确认这三件事</h2></div><ol><li><span>01</span><div><strong>验证账号</strong><p>在账号管理中检查登录信息。</p></div></li><li><span>02</span><div><strong>确认策略</strong><p>检查筛选条件与交易参数。</p></div></li><li><span>03</span><div><strong>保存配置</strong><p>在系统设置中保存所需凭据。</p></div></li></ol><button class="btn btn-secondary" data-open-panel="settings">打开系统设置 →</button></div>
@@ -555,7 +555,7 @@
             <div>
               <div class="strategy-kicker">Strategy Center</div>
               <h2>策略中心</h2>
-              <p>管理购入与出售策略，组装内置模块，登记自定义模块，并在启用前完成风险确认。</p>
+              <p>管理购入策略，组装内置模块，登记自定义模块，并在启用前完成风险确认。</p>
             </div>
             <div class="strategy-hero-actions">
               <button type="button" class="btn btn-secondary" id="strategy-btn-refresh">刷新</button>
@@ -567,7 +567,6 @@
 
           <div class="strategy-tabs" role="tablist">
             <button type="button" class="strategy-tab active" data-strategy-view="buy">购入策略</button>
-            <button type="button" class="strategy-tab" data-strategy-view="sell">出售策略</button>
             <button type="button" class="strategy-tab" data-strategy-view="modules">模块管理</button>
           </div>
 
@@ -714,24 +713,7 @@
                 <input type="password" id="cfg-steam-shared-secret"
                   placeholder="* 必填 — 从 Steam 手机令牌中提取的 shared_secret (Base64)" autocomplete="new-password" />
               </div>
-              <div class="field field--switch">
-                <label class="checkbox-wrapper">
-                  <input type="checkbox" id="cfg-steam-auto-confirm" />
-                  <span>自动确认上架</span>
-                </label>
-              </div>
-              <div class="field-row">
-                <div class="field">
-                  <label for="cfg-steam-identity-secret">identity_secret</label>
-                  <input type="password" id="cfg-steam-identity-secret"
-                    placeholder="* 必填 — Steam 手机确认 identity_secret (Base64)" autocomplete="new-password" />
-                </div>
-                <div class="field">
-                  <label for="cfg-steam-device-id">device_id</label>
-                  <input type="password" id="cfg-steam-device-id" placeholder="Steam 手机确认 device_id"
-                    autocomplete="new-password" />
-                </div>
-              </div>
+
             </div>
           </div>
 
@@ -1125,10 +1107,6 @@
                 <input type="checkbox" id="cfg-verbose-debug">
                 <span>详细模式</span>
               </label>
-              <label class="checkbox-wrapper">
-                <input type="checkbox" id="cfg-steam-listings-debug">
-                <span>Steam 解析调试</span>
-              </label>
               <span class="console-stats">
                 <span class="log-count-badge" id="log-count-badge">0 行</span>
               </span>
@@ -1271,14 +1249,10 @@
       <div class="wizard-step" id="wizard-step-1">
         <div class="wizard-icon">🔑</div>
         <h3 class="wizard-title">Steam 令牌密钥</h3>
-        <p class="wizard-desc">用于自动生成 Steam Guard 验证码和确认交易，是自动挂刀的核心凭据。</p>
+        <p class="wizard-desc">用于自动生成 Steam Guard 验证码，完成 Steam 登录。</p>
         <div class="field">
           <label for="wiz-shared-secret">shared_secret <span class="wizard-tag">必填</span></label>
           <input type="password" id="wiz-shared-secret" placeholder="Steam Guard 共享密钥" autocomplete="off" />
-        </div>
-        <div class="field" style="margin-top:10px">
-          <label for="wiz-identity-secret">identity_secret <span class="wizard-tag">必填</span></label>
-          <input type="password" id="wiz-identity-secret" placeholder="Steam 身份密钥" autocomplete="off" />
         </div>
         <p class="wizard-hint">可在 Steam 手机客户端的令牌数据或第三方工具中提取。</p>
       </div>

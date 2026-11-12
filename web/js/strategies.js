@@ -3,8 +3,8 @@ let strategiesState = {
   view: "buy",
   strategies: [],
   modules: [],
-  active: { buy: "", sell: "" },
-  limits: { buy: 22, sell: 14 },
+  active: { buy: "" },
+  limits: { buy: 22 },
   availableData: {},
   selectedId: "",
   draft: null,
@@ -25,18 +25,8 @@ const STRATEGY_BUY_FIXED_MODULES = [
   "action.buff_lock_pay",
 ];
 
-const STRATEGY_SELL_LIST_FIXED_MODULES = [
-  "sell.sellable_inventory_filter",
-  "guard.max_listings_per_item",
-  "action.steam_list",
-];
 
-const STRATEGY_SELL_PRICING_CORE_MODULES = [
-  "pricing.steam_wall_price",
-  "pricing.steam_wall_gap",
-];
 
-const STRATEGY_SELL_DEFAULT_PRICING_MODULE = "pricing.steam_wall_price";
 
 function strategyClone(v) {
   if (v === undefined) return undefined;
@@ -63,7 +53,7 @@ function strategyLocalDraftId(type) {
 function strategyStepLimit(type = strategiesState.draft?.strategy_type || strategiesState.view) {
   const value = Number(strategiesState.limits?.[type]);
   if (Number.isFinite(value) && value > 0) return value;
-  return type === "sell" ? 14 : 22;
+  return 22;
 }
 
 function strategyModuleName(moduleId) {
@@ -83,24 +73,7 @@ function strategyModuleCount(moduleId, excludeIndex = -1) {
     .length;
 }
 
-function strategyIsSellPricingCore(moduleId) {
-  return STRATEGY_SELL_PRICING_CORE_MODULES.includes(moduleId);
-}
 
-function strategyPricingReplacementIndexes(mod, options = {}) {
-  const draft = strategiesState.draft;
-  if (!options.allowPricingReplacement || !draft || draft.strategy_type !== "sell" || !strategyIsSellPricingCore(mod?.id)) {
-    return [];
-  }
-  const conflicts = new Set([
-    ...(mod.conflicts || []),
-    ...STRATEGY_SELL_PRICING_CORE_MODULES.filter((moduleId) => moduleId !== mod.id),
-  ]);
-  return (draft.steps || [])
-    .map((step, idx) => ({ step, idx }))
-    .filter(({ step }) => step.module_id !== mod.id && conflicts.has(step.module_id))
-    .map(({ idx }) => idx);
-}
 
 function strategyModuleAddStatus(mod, options = {}) {
   const draft = strategiesState.draft;
@@ -111,23 +84,21 @@ function strategyModuleAddStatus(mod, options = {}) {
   const steps = draft.steps || [];
   const ignoreIndex = Number.isInteger(options.ignoreIndex) ? options.ignoreIndex : -1;
   const isExistingStep = !!options.existing;
-  const replacementIndexes = isExistingStep ? [] : strategyPricingReplacementIndexes(mod, options);
-  const replacementSet = new Set(replacementIndexes);
   const limit = strategyStepLimit(draft.strategy_type);
-  const stepCount = steps.filter((_, idx) => idx !== ignoreIndex && !replacementSet.has(idx)).length;
+  const stepCount = steps.filter((_, idx) => idx !== ignoreIndex).length;
   if (!isExistingStep && stepCount >= limit) {
     return { ok: false, reason: `当前策略最多 ${limit} 个模块` };
   }
   const rawMaxInstances = Number(mod?.max_instances || 1);
   const maxInstances = Number.isFinite(rawMaxInstances) && rawMaxInstances > 0 ? rawMaxInstances : 1;
   const count = steps
-    .filter((step, idx) => idx !== ignoreIndex && !replacementSet.has(idx) && step.module_id === mod.id)
+    .filter((step, idx) => idx !== ignoreIndex && step.module_id === mod.id)
     .length;
   if (!isExistingStep && count >= maxInstances) {
     return { ok: false, reason: maxInstances === 1 ? "该模块已添加" : `该模块最多 ${maxInstances} 个` };
   }
   const enabledIds = new Set(steps
-    .filter((step, idx) => idx !== ignoreIndex && !replacementSet.has(idx) && step.enabled !== false)
+    .filter((step, idx) => idx !== ignoreIndex && step.enabled !== false)
     .map((step) => step.module_id));
   const modules = strategyModulesById();
   const conflicts = new Set(mod?.conflicts || []);
@@ -140,10 +111,6 @@ function strategyModuleAddStatus(mod, options = {}) {
   return {
     ok: true,
     reason: "",
-    replacementIndexes,
-    replacementHint: replacementIndexes.length
-      ? `将替换：${replacementIndexes.map((idx) => strategyModuleName(steps[idx]?.module_id)).join("、")}`
-      : "",
   };
 }
 
@@ -165,23 +132,10 @@ function strategyStep(moduleId, enabled = true) {
   return { module_id: moduleId, enabled, params: defaultParamsForModule(moduleId) };
 }
 
-function strategyBlankSteps(type) {
-  if (type === "sell") {
-    return [
-      strategyStep("sell.sellable_inventory_filter"),
-      strategyStep("guard.max_listings_per_item"),
-      strategyStep(STRATEGY_SELL_DEFAULT_PRICING_MODULE),
-      strategyStep("action.steam_list"),
-    ];
-  }
+function strategyBlankSteps() {
   return STRATEGY_BUY_FIXED_MODULES.map((moduleId) => strategyStep(moduleId));
 }
 
-function strategyEnabledIdsForDraft(draft = strategiesState.draft) {
-  return new Set((draft?.steps || [])
-    .filter((step) => step.enabled !== false)
-    .map((step) => step.module_id));
-}
 
 function strategyMergeDefaultParams(step) {
   const out = strategyClone(step || {});
@@ -205,71 +159,21 @@ function strategyEnsureRequiredSteps(draft = strategiesState.draft) {
   const steps = Array.isArray(draft.steps) ? draft.steps : [];
   const used = new Set();
 
-  if (draft.strategy_type === "buy") {
-    const headIds = [
-      "buy.steamdt_top_n",
-      "buy.basic_candidate_filter",
-      "buy.buff_realtime_price",
-      "buy.steam_sell_depth",
-    ];
-    const tailIds = ["guard.target_balance", "action.buff_lock_pay"];
-    const fixedIds = new Set([...headIds, ...tailIds]);
-    const head = headIds.map((moduleId) => strategyTakeStep(steps, moduleId, used));
-    const tail = tailIds.map((moduleId) => strategyTakeStep(steps, moduleId, used));
-    const middle = steps
-      .filter((step, idx) => !used.has(idx) && !fixedIds.has(step.module_id))
-      .map((step) => strategyClone(step));
-    const maxMiddle = Math.max(0, strategyStepLimit(draft.strategy_type) - head.length - tail.length);
-    draft.steps = [...head, ...middle.slice(0, maxMiddle), ...tail];
-  } else {
-    const enabledIds = strategyEnabledIdsForDraft(draft);
-    const hasPause = enabledIds.has("action.pause_auto_sell");
-    const hasList = enabledIds.has("action.steam_list");
-    if (hasPause && !hasList) {
-      const pause = strategyTakeStep(steps, "action.pause_auto_sell", used);
-      const middle = steps
-        .filter((step, idx) => !used.has(idx) && step.module_id !== "action.steam_list")
-        .map((step) => strategyClone(step));
-      const maxMiddle = Math.max(0, strategyStepLimit(draft.strategy_type) - 1);
-      draft.steps = [...middle.slice(0, maxMiddle), pause];
-    } else {
-      const pricingId = (steps.find((step) => step.enabled !== false && strategyIsSellPricingCore(step.module_id)) || {})
-        .module_id || STRATEGY_SELL_DEFAULT_PRICING_MODULE;
-      const pricingConflicts = new Set(pricingId === "pricing.steam_wall_gap"
-        ? ["pricing.steam_wall_price", "pricing.price_offset"]
-        : ["pricing.steam_wall_gap"]);
-      const fixedIds = new Set([
-        "sell.sellable_inventory_filter",
-        "guard.max_listings_per_item",
-        "action.steam_list",
-      ]);
-      const head = [
-        strategyTakeStep(steps, "sell.sellable_inventory_filter", used),
-        strategyTakeStep(steps, "guard.max_listings_per_item", used),
-      ];
-      const action = strategyTakeStep(steps, "action.steam_list", used);
-      const middle = steps
-        .filter((step, idx) => {
-          if (used.has(idx) || fixedIds.has(step.module_id) || step.module_id === "action.pause_auto_sell") return false;
-          if (pricingConflicts.has(step.module_id)) return false;
-          if (strategyIsSellPricingCore(step.module_id) && step.module_id !== pricingId) return false;
-          return true;
-        })
-        .map((step) => strategyClone(step));
-      if (!middle.some((step) => step.module_id === pricingId && step.enabled !== false)) {
-        middle.unshift(strategyStep(pricingId));
-      }
-      const pricingIndex = middle.findIndex((step) => step.module_id === pricingId);
-      const offsetIndex = middle.findIndex((step) => step.module_id === "pricing.price_offset");
-      if (pricingIndex >= 0 && offsetIndex >= 0 && offsetIndex < pricingIndex) {
-        const [offset] = middle.splice(offsetIndex, 1);
-        const nextPricingIndex = middle.findIndex((step) => step.module_id === pricingId);
-        middle.splice(nextPricingIndex + 1, 0, offset);
-      }
-      const maxMiddle = Math.max(0, strategyStepLimit(draft.strategy_type) - head.length - 1);
-      draft.steps = [...head, ...middle.slice(0, maxMiddle), action];
-    }
-  }
+  const headIds = [
+    "buy.steamdt_top_n",
+    "buy.basic_candidate_filter",
+    "buy.buff_realtime_price",
+    "buy.steam_sell_depth",
+  ];
+  const tailIds = ["guard.target_balance", "action.buff_lock_pay"];
+  const fixedIds = new Set([...headIds, ...tailIds]);
+  const head = headIds.map((moduleId) => strategyTakeStep(steps, moduleId, used));
+  const tail = tailIds.map((moduleId) => strategyTakeStep(steps, moduleId, used));
+  const middle = steps
+    .filter((step, idx) => !used.has(idx) && !fixedIds.has(step.module_id))
+    .map((step) => strategyClone(step));
+  const maxMiddle = Math.max(0, strategyStepLimit(draft.strategy_type) - head.length - tail.length);
+  draft.steps = [...head, ...middle.slice(0, maxMiddle), ...tail];
 
   strategiesState.selectedStep = Math.max(0, Math.min(strategiesState.selectedStep, draft.steps.length - 1));
   return JSON.stringify(draft.steps || []) !== original;
@@ -277,39 +181,14 @@ function strategyEnsureRequiredSteps(draft = strategiesState.draft) {
 
 function isStrategyStepFixed(step, draft = strategiesState.draft) {
   if (!step || !draft || draft.origin === "system") return false;
-  const moduleId = step.module_id;
-  const enabledIds = strategyEnabledIdsForDraft(draft);
-  if (draft.strategy_type === "buy") {
-    return STRATEGY_BUY_FIXED_MODULES.includes(moduleId);
-  }
-  if (enabledIds.has("action.steam_list")) {
-    return moduleId === "sell.sellable_inventory_filter"
-      || moduleId === "guard.max_listings_per_item"
-      || moduleId === "action.steam_list";
-  }
-  if (moduleId === "action.pause_auto_sell") return true;
-  return false;
+  return STRATEGY_BUY_FIXED_MODULES.includes(step.module_id);
 }
 
-function strategyHasListingAction(draft = strategiesState.draft) {
-  return !!(draft?.steps || []).some((step) => step.module_id === "action.steam_list" && step.enabled !== false);
-}
 
-function strategyIsLastEnabledPricingCore(idx, draft = strategiesState.draft) {
-  const steps = draft?.steps || [];
-  const step = steps[idx];
-  if (!step || draft?.strategy_type !== "sell" || !strategyIsSellPricingCore(step.module_id) || step.enabled === false) {
-    return false;
-  }
-  if (!strategyHasListingAction(draft)) return false;
-  return steps.filter((item) => strategyIsSellPricingCore(item.module_id) && item.enabled !== false).length <= 1;
-}
 
 function strategyDefaultInsertIndex(draft = strategiesState.draft) {
   const steps = draft?.steps || [];
-  const terminalIds = draft?.strategy_type === "buy"
-    ? ["guard.target_balance", "action.buff_lock_pay"]
-    : ["action.steam_list", "action.pause_auto_sell"];
+  const terminalIds = ["guard.target_balance", "action.buff_lock_pay"];
   const idx = steps.findIndex((step) => terminalIds.includes(step.module_id));
   return idx >= 0 ? idx : steps.length;
 }
@@ -357,7 +236,7 @@ function strategyMoveStepToInsertIndex(fromIndex, insertIndex) {
 }
 
 function strategyViewTitle() {
-  return strategiesState.view === "sell" ? "出售策略" : "购入策略";
+  return "购入策略";
 }
 
 function strategyDraftComparable(draft = strategiesState.draft) {
@@ -447,7 +326,7 @@ async function loadStrategies(force = false) {
     const data = await fetchJson(API + "/strategies");
     strategiesState.strategies = data.strategies || [];
     strategiesState.modules = data.modules || [];
-    strategiesState.active = data.active || { buy: "", sell: "" };
+    strategiesState.active = data.active || { buy: "" };
     strategiesState.limits = data.limits || strategiesState.limits;
     strategiesState.availableData = data.available_data || {};
     strategiesState.loaded = true;
@@ -692,10 +571,6 @@ function toggleStep(idx) {
     toast("固定模块不可禁用");
     return;
   }
-  if (strategyIsLastEnabledPricingCore(idx)) {
-    toast("无法禁用模块", "出售上架策略至少需要一个定价核心，可通过添加另一个定价模块来替换");
-    return;
-  }
   if (step.enabled === false) {
     const mod = strategyModulesById().get(step.module_id) || { id: step.module_id };
     const status = strategyModuleAddStatus(mod, { ignoreIndex: idx, existing: true });
@@ -748,10 +623,6 @@ function deleteStep(idx) {
   const steps = strategiesState.draft?.steps || [];
   if (isStrategyStepFixed(steps[idx])) {
     toast("固定模块不可删除");
-    return;
-  }
-  if (strategyIsLastEnabledPricingCore(idx)) {
-    toast("无法删除模块", "出售上架策略至少需要一个定价核心，可通过添加另一个定价模块来替换");
     return;
   }
   steps.splice(idx, 1);
@@ -1056,26 +927,16 @@ function addStep(moduleId) {
     toast("无法添加模块", "模块不存在");
     return false;
   }
-  const status = strategyModuleAddStatus(mod, { allowPricingReplacement: true });
+  const status = strategyModuleAddStatus(mod);
   if (!status.ok) {
     toast("无法添加模块", status.reason);
     return false;
   }
   strategiesState.draft.steps = strategiesState.draft.steps || [];
-  let insertIndex = status.replacementIndexes?.length
-    ? Math.min(...status.replacementIndexes)
-    : strategyDefaultInsertIndex(strategiesState.draft);
-  (status.replacementIndexes || [])
-    .slice()
-    .sort((a, b) => b - a)
-    .forEach((idx) => {
-      strategiesState.draft.steps.splice(idx, 1);
-      if (idx < insertIndex) insertIndex -= 1;
-    });
+  const insertIndex = strategyDefaultInsertIndex(strategiesState.draft);
   strategiesState.draft.steps.splice(insertIndex, 0, { module_id: moduleId, enabled: true, params: defaultParamsForModule(moduleId) });
   strategiesState.selectedStep = insertIndex;
   renderStrategies();
-  if (status.replacementHint) toast("定价模块已替换", status.replacementHint);
   return true;
 }
 
@@ -1096,9 +957,9 @@ async function openModulePicker() {
       return !kw || text.includes(kw);
     });
     content.querySelector(".strategy-module-picker-list").innerHTML = filtered.map((m) => {
-      const status = strategyModuleAddStatus(m, { allowPricingReplacement: true });
+      const status = strategyModuleAddStatus(m);
       const dependencyHint = status.ok ? strategyModuleDependencyHint(m) : "";
-      const hint = status.ok ? (status.replacementHint || dependencyHint) : status.reason;
+      const hint = status.ok ? dependencyHint : status.reason;
       return `
         <button type="button" class="strategy-module-choice ${status.ok ? "" : "disabled"}" data-module-id="${escapeHtml(m.id)}" data-disabled="${status.ok ? "0" : "1"}" data-reason="${escapeHtml(status.reason || "")}">
           <span class="strategy-module-id">${escapeHtml(m.id)}</span>
@@ -1175,7 +1036,7 @@ function strategyAvailableDataSummary() {
     <div class="strategy-module-help">
       <strong>用户声明式模块</strong>
       <span>可读取 item、buy_record、listing、config 和前置模块 outputs；支持 ${escapeHtml(ops.slice(0, 8).join(" / "))}${ops.length > 8 ? " ..." : ""}。</span>
-      <span>可挂载阶段：购入 ${escapeHtml((stages.buy || []).join(" / ") || "-")}；出售 ${escapeHtml((stages.sell || []).join(" / ") || "-")}。</span>
+      <span>可挂载阶段：购入 ${escapeHtml((stages.buy || []).join(" / ") || "-")}。</span>
     </div>
   `;
 }
@@ -1204,7 +1065,7 @@ function strategyTemplateLabel(strategy) {
 
 async function createStrategyDraft() {
   if (!(await strategyConfirmLeave())) return;
-  const type = strategiesState.view === "sell" ? "sell" : "buy";
+  const type = "buy";
   const templates = (strategiesState.strategies || []).filter((s) => s.strategy_type === type);
   const current = strategyById(strategiesState.selectedId);
   const defaultTemplate = (current && current.strategy_type === type ? current : null)
@@ -1216,7 +1077,7 @@ async function createStrategyDraft() {
   content.innerHTML = `
     <label class="strategy-param">
       <span>策略名称</span>
-      <input type="text" class="strategy-create-name" value="${escapeHtml(`我的${type === "sell" ? "出售" : "购入"}策略`)}" />
+      <input type="text" class="strategy-create-name" value="${escapeHtml("我的购入策略")}" />
     </label>
     <div class="strategy-create-options">
       <button type="button" class="strategy-create-option active" data-mode="template">
@@ -1236,7 +1097,7 @@ async function createStrategyDraft() {
     </label>
   `;
   const result = await appModal({
-    title: `新建${type === "sell" ? "出售" : "购入"}策略`,
+    title: "新建购入策略",
     message: "",
     content,
     width: "560px",
@@ -1463,7 +1324,7 @@ function confirmStrategyActivation(draft) {
   return appModal({
     title: custom ? "启用自定义策略" : "启用系统策略",
     message: custom
-      ? "自定义策略会直接影响自动买入或出售，可能造成亏损、误买、误卖或错过交易机会。请确认你已理解风险并完成模拟运行。"
+      ? "自定义策略会直接影响自动买入，可能造成亏损、误买或错过交易机会。请确认你已理解风险并完成模拟运行。"
       : "启用系统策略会切换当前自动交易行为。请确认下方差异。",
     content: strategyActivationDiffContent(draft),
     variant: "warning",

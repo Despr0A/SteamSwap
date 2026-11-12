@@ -70,7 +70,6 @@ def _api_data_init_unlocked():
             "max_discount": 0.8,
             "exclude_keywords": ["印花"],
             "verbose_debug": False,
-            "steam_listings_debug": False,
         },
         "proxy_pool": {
             "enabled": False,
@@ -81,11 +80,6 @@ def _api_data_init_unlocked():
         # 以下敏感字段重置为空
         "steam_guard": {
             "shared_secret": "",
-        },
-        "steam_confirm": {
-            "enabled": False,
-            "identity_secret": "",
-            "device_id": "",
         },
         "notify": {
             "pushplus_token": "",

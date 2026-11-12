@@ -17,9 +17,9 @@ def test_validate_bool_strings_use_boolean_semantics():
     result = validate_and_fill(
         {
             "proxy_pool": {"enabled": "false"},
-            "steam_confirm": {"enabled": "on"},
+            "system": {"buff_session_keepalive_enabled": "on"},
         },
         DEFAULTS,
     )
     assert result["proxy_pool"]["enabled"] is False
-    assert result["steam_confirm"]["enabled"] is True
+    assert result["system"]["buff_session_keepalive_enabled"] is True

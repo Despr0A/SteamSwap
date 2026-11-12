@@ -16,7 +16,6 @@ migrate_from_json()
 prune_cached_item_orders_histogram()
 from app.services.workers import (
     exchange_rate_worker,
-    listing_check_worker,
     receive_worker,
     sync_account_region_worker,
     session_keepalive_worker,
@@ -37,7 +36,6 @@ def _start_background_workers() -> None:
     q.submit(sync_account_region_worker, name="sync_account_region", max_retries=3, retry_base_delay=10.0)
     for fn in (
         receive_worker,
-        listing_check_worker,
         exchange_rate_worker,
         session_keepalive_worker,
         steam_cookie_refresh_worker,

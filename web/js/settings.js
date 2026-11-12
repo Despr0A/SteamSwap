@@ -77,22 +77,12 @@ async function loadConfig() {
   if (gRetrySec) gRetrySec.value = p.retry_interval_seconds ?? "";
   const verboseCb = el("cfg-verbose-debug");
   if (verboseCb) verboseCb.checked = !!p.verbose_debug;
-  const steamListingsDebugCb = el("cfg-steam-listings-debug");
-  if (steamListingsDebugCb) steamListingsDebugCb.checked = !!p.steam_listings_debug;
-  const sellStrategy = el("cfg-sell_strategy");
-  if (sellStrategy) sellStrategy.value = String(p.sell_strategy ?? 1);
   const sellOffset = el("cfg-sell_price_offset");
   if (sellOffset) sellOffset.value = p.sell_price_offset ?? "";
   const wallVol = el("cfg-sell_price_wall_volume");
   if (wallVol) wallVol.value = p.sell_price_wall_volume ?? "";
   const maxIgnore = el("cfg-sell_price_max_ignore_volume");
   if (maxIgnore) maxIgnore.value = p.sell_price_max_ignore_volume ?? "";
-  const sellTrendDays = el("cfg-sell_trend_days");
-  if (sellTrendDays) sellTrendDays.value = p.sell_trend_days ?? "";
-  const maxListingsPerItem = el("cfg-max_listings_per_item");
-  if (maxListingsPerItem) maxListingsPerItem.value = p.max_listings_per_item ?? "";
-  const listingDelayEl = el("cfg-listing_delay_seconds");
-  if (listingDelayEl) listingDelayEl.value = p.listing_delay_seconds ?? "";
   const safeHardCap = el("cfg-safe_purchase_hard_qty_cap");
   if (safeHardCap) safeHardCap.value = p.safe_purchase_hard_qty_cap ?? "";
   const safeLiqRatio = el("cfg-safe_purchase_liquidity_ratio");
@@ -139,13 +129,6 @@ async function loadConfig() {
   const sg = c.steam_guard || {};
   const gSteamSecret = el("cfg-steam-shared-secret");
   if (gSteamSecret) gSteamSecret.value = sg.shared_secret ?? "";
-  const sc = c.steam_confirm || {};
-  const gAutoConfirm = el("cfg-steam-auto-confirm");
-  if (gAutoConfirm) gAutoConfirm.checked = !!sc.enabled;
-  const gIdentitySecret = el("cfg-steam-identity-secret");
-  if (gIdentitySecret) gIdentitySecret.value = sc.identity_secret ?? "";
-  const gDeviceId = el("cfg-steam-device-id");
-  if (gDeviceId) gDeviceId.value = sc.device_id ?? "";
   const gFx = el("cfg-exchange-refresh-hours");
   if (gFx) gFx.value = sys.exchange_rate_refresh_hours ?? "";
   const gBuffKeepalive = el("cfg-buff-session-keepalive-enabled");
@@ -208,14 +191,9 @@ function formToConfig() {
         )
       ) : undefined,
       verbose_debug: el("cfg-verbose-debug") ? el("cfg-verbose-debug").checked : false,
-      steam_listings_debug: el("cfg-steam-listings-debug") ? el("cfg-steam-listings-debug").checked : false,
-      sell_strategy: el("cfg-sell_strategy") ? parseInt(el("cfg-sell_strategy").value, 10) || 1 : undefined,
       sell_price_offset: el("cfg-sell_price_offset") ? parseFloat(el("cfg-sell_price_offset").value) || 0 : undefined,
       sell_price_wall_volume: el("cfg-sell_price_wall_volume") ? parseInt(el("cfg-sell_price_wall_volume").value, 10) : undefined,
       sell_price_max_ignore_volume: el("cfg-sell_price_max_ignore_volume") ? parseInt(el("cfg-sell_price_max_ignore_volume").value, 10) : undefined,
-      sell_trend_days: el("cfg-sell_trend_days") ? parseInt(el("cfg-sell_trend_days").value, 10) || undefined : undefined,
-      max_listings_per_item: el("cfg-max_listings_per_item") ? parseInt(el("cfg-max_listings_per_item").value, 10) || undefined : undefined,
-      listing_delay_seconds: el("cfg-listing_delay_seconds") ? parseInt(el("cfg-listing_delay_seconds").value, 10) || undefined : undefined,
       safe_purchase_hard_qty_cap: el("cfg-safe_purchase_hard_qty_cap") ? parseInt(el("cfg-safe_purchase_hard_qty_cap").value, 10) : undefined,
       safe_purchase_liquidity_ratio: el("cfg-safe_purchase_liquidity_ratio") ? parseFloat(el("cfg-safe_purchase_liquidity_ratio").value) : undefined,
       safe_purchase_low_price_threshold: el("cfg-safe_purchase_low_price_threshold") ? parseFloat(el("cfg-safe_purchase_low_price_threshold").value) : undefined,
@@ -253,11 +231,6 @@ function formToConfig() {
     },
     steam_guard: {
       shared_secret: el("cfg-steam-shared-secret") ? el("cfg-steam-shared-secret").value.trim() : undefined,
-    },
-    steam_confirm: {
-      enabled: !!el("cfg-steam-auto-confirm")?.checked,
-      identity_secret: el("cfg-steam-identity-secret") ? el("cfg-steam-identity-secret").value.trim() : undefined,
-      device_id: el("cfg-steam-device-id") ? el("cfg-steam-device-id").value.trim() : undefined,
     },
     system: {
       exchange_rate_refresh_hours: el("cfg-exchange-refresh-hours") ? parseFloat(el("cfg-exchange-refresh-hours").value) || undefined : undefined,
@@ -424,9 +397,8 @@ const WIZARD_SKIP_KEY = "steamswap_onboard_skip";
 
 function _wizardIsFirstTime(cfg, accounts, buffNoCookie) {
   const sg = cfg.steam_guard || {};
-  const sc = cfg.steam_confirm || {};
   const n = cfg.notify || {};
-  const noConfig = !sg.shared_secret && !sc.identity_secret && !n.pushplus_token;
+  const noConfig = !sg.shared_secret && !n.pushplus_token;
   const noAccount = !accounts || accounts.length === 0;
   // 全未配置 或者 buff cookie 不存在也弹向导
   return (noConfig && noAccount) || buffNoCookie;
@@ -452,9 +424,8 @@ async function checkAndShowOnboardingWizard() {
   if (!_wizardIsFirstTime(cfg, accounts, buffNoCookie)) return false;
   // 只有「其他都已配置、仅 Buff Cookie 缺失」时才直接跳到第 3 步
   const sg = cfg.steam_guard || {};
-  const sc = cfg.steam_confirm || {};
   const n = cfg.notify || {};
-  const configDone = sg.shared_secret && sc.identity_secret;
+  const configDone = sg.shared_secret;
   const accountDone = accounts.length > 0;
   const onlyBuffMissing = buffNoCookie && configDone && accountDone;
   _showWizard(onlyBuffMissing);
@@ -635,18 +606,14 @@ function _showWizard(startAtBuffStep = false) {
       const cfg = d.config || {};
       if (currentStep === 1) {
         const ss = (el("wiz-shared-secret")?.value || "").trim();
-        const is = (el("wiz-identity-secret")?.value || "").trim();
-        if (!ss && !is) return;
+        if (!ss) return;
         const sg = { ...(cfg.steam_guard || {}), ...(ss ? { shared_secret: ss } : {}) };
-        const sc = { ...(cfg.steam_confirm || {}), ...(is ? { identity_secret: is } : {}) };
         await fetchJson(API + "/config", {
           method: "POST",
-          body: JSON.stringify({ config: { ...cfg, steam_guard: sg, steam_confirm: sc } }),
+          body: JSON.stringify({ config: { ...cfg, steam_guard: sg } }),
         });
         const gSteamSecret = el("cfg-steam-shared-secret");
         if (gSteamSecret && ss) gSteamSecret.value = ss;
-        const gIdentSec = el("cfg-steam-identity-secret");
-        if (gIdentSec && is) gIdentSec.value = is;
       } else if (currentStep === 2) {
         const tok = (el("wiz-pushplus-token")?.value || "").trim();
         if (!tok) return;
@@ -732,9 +699,8 @@ async function updateUXStatus(cfg) {
 
 function updateNavBadges(cfg, accounts) {
   const sg = cfg.steam_guard || {};
-  const sc = cfg.steam_confirm || {};
   const n = cfg.notify || {};
-  const configOk = sg.shared_secret && sc.identity_secret && n.pushplus_token;
+  const configOk = sg.shared_secret && n.pushplus_token;
   const accountOk = accounts.length > 0;
 
   const badgeSettings = el("nav-badge-settings");
@@ -755,12 +721,11 @@ function renderGettingStartedCard(cfg, accounts) {
   }
 
   const sg = cfg.steam_guard || {};
-  const sc = cfg.steam_confirm || {};
   const n = cfg.notify || {};
 
   const steps = [
     {
-      done: !!sg.shared_secret && !!sc.identity_secret,
+      done: !!sg.shared_secret,
       label: "填写 Steam 令牌密钥（<span class='gs-link' onclick='document.querySelector(\"[data-tab=settings]\").click()'>系统设置 → Steam 令牌</span>）",
     },
     {
@@ -772,7 +737,7 @@ function renderGettingStartedCard(cfg, accounts) {
       label: "添加 Steam 账号并登录（<span class='gs-link' onclick='document.querySelector(\"[data-tab=accounts]\").click()'>账号管理</span>）",
     },
     {
-      done: accounts.length > 0 && !!sg.shared_secret && !!sc.identity_secret && !!n.pushplus_token,
+      done: accounts.length > 0 && !!sg.shared_secret && !!n.pushplus_token,
       label: "返回仪表盘点击「启动任务」🚀",
     },
   ];

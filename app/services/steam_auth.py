@@ -167,24 +167,18 @@ def _build_steam_guard_dict(cur: dict, cfg: dict) -> Optional[dict]:
     {
         "steamid": "...",
         "shared_secret": "...",
-        "identity_secret": "...",
-        "device_id": "...",
     }
     We assemble this from the app config and account info.
     """
     shared_secret = ((cfg.get("steam_guard") or {}).get("shared_secret") or "").strip()
     if shared_secret:
         shared_secret = re.sub(r'\\u([0-9a-fA-F]{4})', lambda m: chr(int(m.group(1), 16)), shared_secret)
-    identity_secret = ((cfg.get("steam_confirm") or {}).get("identity_secret") or "").strip()
-    device_id       = ((cfg.get("steam_confirm") or {}).get("device_id") or "").strip()
     steam_id        = (cur.get("steam_id") or "").strip()
     if not shared_secret:
         return None  
     return {
         "steamid": steam_id,
         "shared_secret": shared_secret,
-        "identity_secret": identity_secret,
-        "device_id": device_id,
     }
 def _short_error_detail(exc: Exception, limit: int = 220) -> str:
     detail = str(exc).strip()

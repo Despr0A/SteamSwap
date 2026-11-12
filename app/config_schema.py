@@ -50,7 +50,6 @@ DEFAULTS = {
         "exclude_keywords": ["印花"],
         "sell_price_ratio": 1.0,
         "verbose_debug": False,
-        "sell_strategy": 4,
         "sell_price_offset": 0,
         "sell_price_wall_volume": 20,
         "sell_price_max_ignore_volume": 4,
@@ -62,7 +61,6 @@ DEFAULTS = {
         # Fetch and persist reference prices without ever creating a BUFF
         # order. This is useful for warming the first-observation guard.
         "reference_price_observation_only": False,
-        "sell_trend_days": 7,
         "retry_interval_seconds": 300,
         "buff_retry_delay_seconds": 5,
         # 单品采购数量限制：只限制单个饰品本轮采购量，不代表账户库存总量。
@@ -74,10 +72,6 @@ DEFAULTS = {
         "sell_pressure_orders_n": 5,
         "sell_pressure_threshold": 2.0,
         "receive_poll_interval_seconds": 30,
-        "listing_check_interval_seconds": 600,
-        "max_listings_per_item": 5,
-        "listing_delay_seconds": 3,
-        "steam_listings_debug": False,
         "start_time_limit_enabled": False,
         "start_time_hour": 8,
         "end_time_hour": 22,
@@ -96,11 +90,6 @@ DEFAULTS = {
     },
     "steam_guard": {
         "shared_secret": "",
-    },
-    "steam_confirm": {
-        "enabled": False,
-        "identity_secret": "",
-        "device_id": "",
     },
     "system": {
         "exchange_rate_refresh_hours": 24,
@@ -123,7 +112,6 @@ DEFAULTS = {
     },
     "strategies": {
         "active_buy_strategy_id": "system.buy.default",
-        "active_sell_strategy_id": "",
     },
 }
 def merge(default: dict, overrides: dict) -> dict:

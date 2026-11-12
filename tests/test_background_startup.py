@@ -30,6 +30,8 @@ def test_region_sync_is_submitted_before_long_running_workers(monkeypatch):
 
     assert submitted[0] == "sync_account_region"
     assert "session_keepalive_worker" in submitted
+    assert "receive_worker" in submitted
+    assert "listing_check_worker" not in submitted
 
 
 def test_wait_for_server_ready_probes_localhost_for_wildcard_host(monkeypatch):

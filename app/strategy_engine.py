@@ -12,19 +12,12 @@ from config import get_app_config_path
 STRATEGY_STORE_PATH = get_app_config_path().parent / "strategies.json"
 USER_MODULE_STORE_PATH = get_app_config_path().parent / "strategy_modules.json"
 
-STRATEGY_TYPES = {"buy", "sell"}
-SELL_LEGACY_TO_SYSTEM = {
-    1: "system.sell.immediate",
-    2: "system.sell.trend",
-    3: "system.sell.profit_guard",
-    4: "system.sell.pause",
-}
-SELL_SYSTEM_TO_LEGACY = {v: k for k, v in SELL_LEGACY_TO_SYSTEM.items()}
+STRATEGY_TYPES = {"buy"}
 
 SENSITIVE_KEY_RE = re.compile(r"(cookie|token|secret|password|passwd|session|credential)", re.I)
 
 DEFAULT_MODULE_MAX_INSTANCES = 1
-STRATEGY_STEP_LIMITS = {"buy": 22, "sell": 14}
+STRATEGY_STEP_LIMITS = {"buy": 22}
 BUY_REQUIRED_MODULES = [
     "buy.steamdt_top_n",
     "buy.basic_candidate_filter",
@@ -32,14 +25,6 @@ BUY_REQUIRED_MODULES = [
     "buy.steam_sell_depth",
     "guard.target_balance",
     "action.buff_lock_pay",
-]
-SELL_LIST_REQUIRED_MODULES = [
-    "sell.sellable_inventory_filter",
-    "guard.max_listings_per_item",
-]
-SELL_PRICING_CORE_MODULES = [
-    "pricing.steam_wall_price",
-    "pricing.steam_wall_gap",
 ]
 
 
@@ -245,87 +230,6 @@ BUILTIN_MODULES: Dict[str, Dict[str, Any]] = {
         "description": "执行 Buff 锁单、付款等待、记录购买和催发货。",
         "params_schema": {},
     },
-    "sell.sellable_inventory_filter": {
-        "id": "sell.sellable_inventory_filter",
-        "name": "可出售库存",
-        "category": "sell.filter",
-        "strategy_types": ["sell"],
-        "description": "仅处理 Steam 标记为可出售的库存物品。",
-        "params_schema": {},
-    },
-    "guard.max_listings_per_item": {
-        "id": "guard.max_listings_per_item",
-        "name": "同名在售上限",
-        "category": "guard",
-        "strategy_types": ["sell"],
-        "description": "同一饰品名的在售数量达到上限后不再继续上架。",
-        "params_schema": {"max_listings_per_item": {"type": "integer", "min": 1, "default": 5, "label": "同名在售上限"}},
-    },
-    "pricing.steam_wall_gap": {
-        "id": "pricing.steam_wall_gap",
-        "name": "墙+断层一体定价",
-        "category": "pricing",
-        "strategy_types": ["sell"],
-        "description": "一体化计算基础上架价和价格补偿，可替换拆分后的价格墙定价模块。",
-        "params_schema": {
-            "sell_price_wall_volume": {"type": "integer", "min": 1, "default": 20, "label": "价格墙数量阈值"},
-            "sell_price_max_ignore_volume": {"type": "integer", "min": 0, "default": 4, "label": "断层跳跃容忍量"},
-            "sell_price_offset": {"type": "number", "default": 0, "label": "价格补偿"},
-        },
-    },
-    "pricing.steam_wall_price": {
-        "id": "pricing.steam_wall_price",
-        "name": "价格墙定价",
-        "category": "pricing",
-        "strategy_types": ["sell"],
-        "description": "基于 Steam 卖单墙和价格断层计算基础上架价。",
-        "params_schema": {
-            "sell_price_wall_volume": {"type": "integer", "min": 1, "default": 20, "label": "价格墙数量阈值"},
-            "sell_price_max_ignore_volume": {"type": "integer", "min": 0, "default": 4, "label": "断层跳跃容忍量"},
-        },
-    },
-    "pricing.price_offset": {
-        "id": "pricing.price_offset",
-        "name": "上架价补偿",
-        "category": "pricing",
-        "strategy_types": ["sell"],
-        "description": "在智能定价结果上追加固定补偿，可用于略高或略低挂牌。",
-        "params_schema": {
-            "sell_price_offset": {"type": "number", "default": 0, "label": "价格补偿"},
-        },
-    },
-    "guard.rising_trend_wait": {
-        "id": "guard.rising_trend_wait",
-        "name": "上涨趋势等待",
-        "category": "guard",
-        "strategy_types": ["sell"],
-        "description": "近 N 天价格上涨时暂缓出售。",
-        "params_schema": {"sell_trend_days": {"type": "integer", "min": 1, "default": 7, "label": "趋势判断天数"}},
-    },
-    "guard.profit_ratio": {
-        "id": "guard.profit_ratio",
-        "name": "利润比例保护",
-        "category": "guard",
-        "strategy_types": ["sell"],
-        "description": "当前买入/挂刀价比例不能高于购入时比例的指定倍数。",
-        "params_schema": {"profit_ratio_multiplier": {"type": "number", "min": 1, "default": 1.05, "label": "利润比例倍数"}},
-    },
-    "action.pause_auto_sell": {
-        "id": "action.pause_auto_sell",
-        "name": "暂停自动出售",
-        "category": "action",
-        "strategy_types": ["sell"],
-        "description": "出售阶段直接跳过，保留手动出售。",
-        "params_schema": {},
-    },
-    "action.steam_list": {
-        "id": "action.steam_list",
-        "name": "Steam 上架",
-        "category": "action",
-        "strategy_types": ["sell"],
-        "description": "按策略计算价格后提交 Steam 上架。",
-        "params_schema": {},
-    },
 }
 
 
@@ -357,65 +261,6 @@ SYSTEM_STRATEGIES: List[Dict[str, Any]] = [
             {"module_id": "action.buff_lock_pay", "enabled": True, "params": {}},
         ],
     },
-    {
-        "id": "system.sell.immediate",
-        "name": "系统出售策略1：立即上架",
-        "strategy_type": "sell",
-        "origin": "system",
-        "readonly": True,
-        "description": "可出售后按 Steam 卖单墙+断层智能定价并上架。",
-        "steps": [
-            {"module_id": "sell.sellable_inventory_filter", "enabled": True, "params": {}},
-            {"module_id": "guard.max_listings_per_item", "enabled": True, "params": {}},
-            {"module_id": "pricing.steam_wall_price", "enabled": True, "params": {}},
-            {"module_id": "pricing.price_offset", "enabled": True, "params": {}},
-            {"module_id": "action.steam_list", "enabled": True, "params": {}},
-        ],
-    },
-    {
-        "id": "system.sell.trend",
-        "name": "系统出售策略2：趋势等待",
-        "strategy_type": "sell",
-        "origin": "system",
-        "readonly": True,
-        "description": "策略1基础上，近 N 天上涨时等待。",
-        "steps": [
-            {"module_id": "sell.sellable_inventory_filter", "enabled": True, "params": {}},
-            {"module_id": "guard.max_listings_per_item", "enabled": True, "params": {}},
-            {"module_id": "pricing.steam_wall_price", "enabled": True, "params": {}},
-            {"module_id": "pricing.price_offset", "enabled": True, "params": {}},
-            {"module_id": "guard.rising_trend_wait", "enabled": True, "params": {}},
-            {"module_id": "action.steam_list", "enabled": True, "params": {}},
-        ],
-    },
-    {
-        "id": "system.sell.profit_guard",
-        "name": "系统出售策略3：利润保护",
-        "strategy_type": "sell",
-        "origin": "system",
-        "readonly": True,
-        "description": "策略2基础上，避免以明显更差的价格低价售出。",
-        "steps": [
-            {"module_id": "sell.sellable_inventory_filter", "enabled": True, "params": {}},
-            {"module_id": "guard.max_listings_per_item", "enabled": True, "params": {}},
-            {"module_id": "pricing.steam_wall_price", "enabled": True, "params": {}},
-            {"module_id": "pricing.price_offset", "enabled": True, "params": {}},
-            {"module_id": "guard.rising_trend_wait", "enabled": True, "params": {}},
-            {"module_id": "guard.profit_ratio", "enabled": True, "params": {}},
-            {"module_id": "action.steam_list", "enabled": True, "params": {}},
-        ],
-    },
-    {
-        "id": "system.sell.pause",
-        "name": "系统出售策略4：暂停自动出售",
-        "strategy_type": "sell",
-        "origin": "system",
-        "readonly": True,
-        "description": "自动出售阶段跳过，保留手动出售。",
-        "steps": [
-            {"module_id": "action.pause_auto_sell", "enabled": True, "params": {}},
-        ],
-    },
 ]
 
 MODULE_CONSTRAINTS: Dict[str, Dict[str, Any]] = {
@@ -445,20 +290,6 @@ MODULE_CONSTRAINTS: Dict[str, Dict[str, Any]] = {
     "guard.purchase_liquidity_cap": {"conflicts": ["guard.safe_purchase_limit"]},
     "guard.low_price_purchase_guard": {"conflicts": ["guard.safe_purchase_limit"]},
     "guard.held_same_item_guard": {"conflicts": ["guard.safe_purchase_limit"]},
-    "pricing.steam_wall_gap": {
-        "conflicts": ["pricing.steam_wall_price", "pricing.price_offset"],
-    },
-    "pricing.steam_wall_price": {"conflicts": ["pricing.steam_wall_gap"]},
-    "pricing.price_offset": {
-        "conflicts": ["pricing.steam_wall_gap"],
-        "requires_any": [["pricing.steam_wall_price", "pricing.steam_wall_gap"]],
-    },
-    "action.pause_auto_sell": {"conflicts": ["action.steam_list"]},
-    "action.steam_list": {
-        "conflicts": ["action.pause_auto_sell"],
-        "requires": ["sell.sellable_inventory_filter", "guard.max_listings_per_item"],
-        "requires_any": [["pricing.steam_wall_price", "pricing.steam_wall_gap"]],
-    },
 }
 
 USER_MODULE_CODE_KEYS = {"code", "source", "script", "entrypoint", "package", "command"}
@@ -467,7 +298,6 @@ USER_MODULE_EFFECTS = {"guard", "filter", "info"}
 USER_MODULE_FAIL_STATUSES = {"reject", "wait", "pass", "error"}
 USER_MODULE_STAGES = {
     "buy": {"buy.candidate_guard"},
-    "sell": {"sell.listing_guard"},
 }
 CONDITION_OPERATORS = {
     "eq", "ne", "gt", "gte", "lt", "lte",
@@ -507,33 +337,6 @@ MODULE_DATA_OUTPUTS: Dict[str, Dict[str, str]] = {
         "sell_pressure": "Computed sell pressure.",
         "limit": "Configured sell pressure threshold.",
     },
-    "guard.max_listings_per_item": {
-        "steam_same_name": "Already listed same-name count on Steam.",
-        "round_same_name": "Same-name count planned in this run.",
-        "max_per_item": "Configured same-name listing cap.",
-    },
-    "pricing.steam_wall_price": {
-        "list_price": "Computed CNY listing price.",
-        "reason": "Pricing explanation from Steam order depth.",
-        "order_count": "Number of Steam sell orders used.",
-    },
-    "pricing.steam_wall_gap": {
-        "list_price": "Computed CNY listing price.",
-        "reason": "Pricing explanation from Steam order depth.",
-        "order_count": "Number of Steam sell orders used.",
-    },
-    "pricing.price_offset": {
-        "sell_price_offset": "Fixed listing price offset.",
-    },
-    "guard.rising_trend_wait": {
-        "trend": "Recent trend value.",
-        "trend_days": "Configured trend lookback days.",
-    },
-    "guard.profit_ratio": {
-        "current_ratio": "Current buy/listing ratio.",
-        "original_ratio": "Buy-time ratio.",
-        "ratio_limit": "Configured allowed ratio limit.",
-    },
 }
 
 MODULE_SAMPLE_OUTPUTS: Dict[str, Dict[str, Any]] = {
@@ -566,13 +369,6 @@ MODULE_SAMPLE_OUTPUTS: Dict[str, Dict[str, Any]] = {
     "guard.low_price_purchase_guard": {"low_price_adjustment": 1.0},
     "guard.held_same_item_guard": {"held_same_name": 0},
     "guard.target_balance": {"target_balance": 100, "projected_spend": 9.8},
-    "sell.sellable_inventory_filter": {"sellable": True},
-    "guard.max_listings_per_item": {"steam_same_name": 1, "round_same_name": 0, "max_per_item": 5},
-    "pricing.steam_wall_price": {"list_price": 12.8, "reason": "sample wall price", "order_count": 30},
-    "pricing.steam_wall_gap": {"list_price": 12.8, "reason": "sample wall-gap price", "order_count": 30},
-    "pricing.price_offset": {"sell_price_offset": 0},
-    "guard.rising_trend_wait": {"trend": -0.01, "trend_days": 7},
-    "guard.profit_ratio": {"current_ratio": 0.72, "original_ratio": 0.75, "ratio_limit": 0.7875},
 }
 
 STRATEGY_CONTEXT_FIELDS: Dict[str, Dict[str, str]] = {
@@ -587,19 +383,6 @@ STRATEGY_CONTEXT_FIELDS: Dict[str, Dict[str, str]] = {
         "outputs.buy.steam_sell_depth.estimated_ratio": "Estimated buy discount ratio.",
         "outputs.guard.history_data_window.cv": "History CV.",
         "outputs.guard.history_data_window.price_percentile": "Current price percentile.",
-    },
-    "sell": {
-        "item.name": "Inventory item name.",
-        "item.assetid": "Steam asset id.",
-        "item.market_hash_name": "Steam market hash name.",
-        "buy_record.price": "Recorded buy price.",
-        "buy_record.market_price": "Buy-time market price.",
-        "listing.list_price": "Computed CNY listing price.",
-        "outputs.guard.max_listings_per_item.steam_same_name": "Already listed same-name count.",
-        "outputs.pricing.steam_wall_price.list_price": "Computed CNY listing price.",
-        "outputs.pricing.steam_wall_gap.list_price": "Computed CNY listing price from the one-piece pricing module.",
-        "outputs.guard.rising_trend_wait.trend": "Recent Steam price trend.",
-        "outputs.guard.profit_ratio.current_ratio": "Current buy/listing ratio.",
     },
 }
 
@@ -823,6 +606,9 @@ def _module_by_id() -> Dict[str, Dict[str, Any]]:
         item.setdefault("enabled", True)
         out[mid] = _apply_module_defaults(mid, item)
     for mid, mod in _user_module_by_id().items():
+        if "buy" not in (mod.get("strategy_types") or []):
+            continue
+        mod["strategy_types"] = ["buy"]
         mod.setdefault("origin", "user")
         mod.setdefault("enabled", False)
         mod.setdefault("executable", False)
@@ -832,7 +618,7 @@ def _module_by_id() -> Dict[str, Dict[str, Any]]:
 
 
 def list_custom_strategies() -> List[Dict[str, Any]]:
-    return [copy.deepcopy(s) for s in _strategy_store().get("strategies", [])]
+    return [copy.deepcopy(s) for s in _strategy_store().get("strategies", []) if s.get("strategy_type") == "buy"]
 
 
 def list_strategies() -> List[Dict[str, Any]]:
@@ -846,24 +632,13 @@ def get_strategy(strategy_id: str) -> Optional[Dict[str, Any]]:
     return None
 
 
-def _legacy_sell_id(config: dict) -> str:
-    try:
-        n = int((config.get("pipeline") or {}).get("sell_strategy", 1))
-    except Exception:
-        n = 1
-    return SELL_LEGACY_TO_SYSTEM.get(n, "system.sell.pause")
-
-
 def get_active_strategy_ids(config: Optional[dict] = None) -> Dict[str, str]:
     cfg = config or load_app_config_validated()
     scfg = cfg.get("strategies") or {}
     buy_id = scfg.get("active_buy_strategy_id") or "system.buy.default"
-    sell_id = scfg.get("active_sell_strategy_id") or _legacy_sell_id(cfg)
     if not get_strategy(buy_id) or get_strategy(buy_id).get("strategy_type") != "buy":
         buy_id = "system.buy.default"
-    if not get_strategy(sell_id) or get_strategy(sell_id).get("strategy_type") != "sell":
-        sell_id = _legacy_sell_id(cfg)
-    return {"buy": buy_id, "sell": sell_id}
+    return {"buy": buy_id}
 
 
 def _normalize_step(raw: dict) -> dict:
@@ -879,7 +654,7 @@ def normalize_strategy(raw: dict, *, imported: bool = False) -> Dict[str, Any]:
     data = _sanitize_value(raw or {})
     strategy_type = str(data.get("strategy_type") or data.get("type") or "").strip()
     if strategy_type not in STRATEGY_TYPES:
-        raise StrategyError("strategy_type 必须是 buy 或 sell")
+        raise StrategyError("strategy_type 必须是 buy")
     name = str(data.get("name") or "未命名策略").strip() or "未命名策略"
     sid = str(data.get("id") or "").strip()
     if not sid or sid.startswith("system."):
@@ -975,13 +750,13 @@ def validate_strategy(strategy: dict, *, for_activation: bool = False) -> List[s
     errors: List[str] = []
     stype = strategy.get("strategy_type")
     if stype not in STRATEGY_TYPES:
-        errors.append("strategy_type 必须是 buy 或 sell")
+        errors.append("strategy_type 必须是 buy")
         return errors
     modules = _module_by_id()
     steps = strategy.get("steps") or []
     step_limit = STRATEGY_STEP_LIMITS.get(stype, 16)
     if len(steps) > step_limit:
-        errors.append(f"{'购入' if stype == 'buy' else '出售'}策略最多添加 {step_limit} 个模块")
+        errors.append(f"购入策略最多添加 {step_limit} 个模块")
     enabled_ids = set()
     enabled_indices: Dict[str, int] = {}
     all_counts: Dict[str, int] = {}
@@ -1048,8 +823,6 @@ def validate_strategy(strategy: dict, *, for_activation: bool = False) -> List[s
                 errors.append(f"Module {label} must run after {req_label}")
         for group in mod.get("requires_any") or []:
             if group and not any(req_id in enabled_ids for req_id in group):
-                if module_id == "action.steam_list" and set(group) == set(SELL_PRICING_CORE_MODULES):
-                    continue
                 req_labels = [
                     (modules.get(req_id) or {}).get("name") or req_id
                     for req_id in group
@@ -1070,22 +843,6 @@ def validate_strategy(strategy: dict, *, for_activation: bool = False) -> List[s
             if module_id not in enabled_ids:
                 label = (modules.get(module_id) or {}).get("name") or module_id
                 errors.append(f"购入策略必须包含并启用 {label}")
-    if stype == "sell":
-        has_pause = "action.pause_auto_sell" in enabled_ids
-        has_list = "action.steam_list" in enabled_ids
-        if not has_pause and not has_list:
-            errors.append("出售策略必须包含 Steam 上架或暂停自动出售动作")
-        if has_list:
-            for module_id in SELL_LIST_REQUIRED_MODULES:
-                if module_id not in enabled_ids:
-                    label = (modules.get(module_id) or {}).get("name") or module_id
-                    errors.append(f"出售上架策略必须包含并启用 {label}")
-            if not any(module_id in enabled_ids for module_id in SELL_PRICING_CORE_MODULES):
-                labels = [
-                    (modules.get(module_id) or {}).get("name") or module_id
-                    for module_id in SELL_PRICING_CORE_MODULES
-                ]
-                errors.append(f"出售上架策略必须包含并启用一个定价模块：{' / '.join(labels)}")
     return errors
 
 
@@ -1119,15 +876,9 @@ def _save_system_strategy_params(raw_strategy: dict) -> Dict[str, Any]:
         raise StrategyError("；".join(errors))
     cfg = load_app_config_validated()
     old_strategies = copy.deepcopy(cfg.get("strategies") or {})
-    old_sell_strategy = (cfg.get("pipeline") or {}).get("sell_strategy")
     updated = apply_strategy_to_config(cfg, strategy["strategy_type"], strategy_override=strategy)
     updated.pop("_strategy_runtime", None)
     updated["strategies"] = old_strategies
-    if strategy["strategy_type"] == "sell":
-        if old_sell_strategy is None:
-            updated.setdefault("pipeline", {}).pop("sell_strategy", None)
-        else:
-            updated.setdefault("pipeline", {})["sell_strategy"] = old_sell_strategy
     save_app_config_validated(updated)
     fresh_cfg = load_app_config_validated()
     return _hydrate_strategy_params(get_strategy(strategy["id"]) or strategy, fresh_cfg)
@@ -1163,9 +914,6 @@ def delete_strategy(strategy_id: str) -> None:
     if active.get("buy") == strategy_id:
         scfg["active_buy_strategy_id"] = "system.buy.default"
         changed = True
-    if active.get("sell") == strategy_id:
-        scfg["active_sell_strategy_id"] = _legacy_sell_id(cfg)
-        changed = True
     _save_strategy_store(store)
     if changed:
         cfg["strategies"] = scfg
@@ -1183,13 +931,7 @@ def activate_strategy(strategy_id: str, *, risk_confirmed: bool) -> Dict[str, An
         raise StrategyError("；".join(errors))
     cfg = load_app_config_validated()
     scfg = dict(cfg.get("strategies") or {})
-    if strategy["strategy_type"] == "buy":
-        scfg["active_buy_strategy_id"] = strategy_id
-    else:
-        scfg["active_sell_strategy_id"] = strategy_id
-        legacy = SELL_SYSTEM_TO_LEGACY.get(strategy_id)
-        if legacy is not None:
-            cfg.setdefault("pipeline", {})["sell_strategy"] = legacy
+    scfg["active_buy_strategy_id"] = strategy_id
     cfg["strategies"] = scfg
     save_app_config_validated(cfg)
     return {"ok": True, "active": get_active_strategy_ids(cfg)}
@@ -1213,8 +955,6 @@ def export_strategy(strategy_id: str) -> Dict[str, Any]:
     return _sanitize_value(out)
 
 
-
-
 def import_user_module(raw_manifest: dict) -> Dict[str, Any]:
     data = _sanitize_value(raw_manifest or {})
     mid = str(data.get("id") or "").strip()
@@ -1228,7 +968,7 @@ def import_user_module(raw_manifest: dict) -> Dict[str, Any]:
         strategy_types = [mtype] if mtype else []
     strategy_types = [t for t in strategy_types if t in STRATEGY_TYPES]
     if not strategy_types:
-        raise StrategyError("Module must declare strategy_types: buy or sell")
+        raise StrategyError("Module must declare strategy_types: buy")
 
     module_kind = _normalize_user_module_kind(data)
     effect = str(data.get("effect") or "guard").strip().lower()
@@ -1346,19 +1086,6 @@ def _current_param_values(config: dict) -> Dict[str, Dict[str, Any]]:
         },
         "guard.held_same_item_guard": {},
         "guard.target_balance": {"target_balance": pipe.get("target_balance")},
-        "guard.max_listings_per_item": {"max_listings_per_item": pipe.get("max_listings_per_item")},
-        "pricing.steam_wall_gap": {
-            "sell_price_wall_volume": pipe.get("sell_price_wall_volume"),
-            "sell_price_max_ignore_volume": pipe.get("sell_price_max_ignore_volume"),
-            "sell_price_offset": pipe.get("sell_price_offset"),
-        },
-        "pricing.steam_wall_price": {
-            "sell_price_wall_volume": pipe.get("sell_price_wall_volume"),
-            "sell_price_max_ignore_volume": pipe.get("sell_price_max_ignore_volume"),
-        },
-        "pricing.price_offset": {"sell_price_offset": pipe.get("sell_price_offset")},
-        "guard.rising_trend_wait": {"sell_trend_days": pipe.get("sell_trend_days")},
-        "guard.profit_ratio": {"profit_ratio_multiplier": pipe.get("profit_ratio_multiplier", 1.05)},
     }
 
 
@@ -1395,18 +1122,9 @@ def _enabled_module_ids(strategy: dict) -> set:
     return {s.get("module_id") for s in _enabled_steps(strategy)}
 
 
-def _derive_sell_strategy_number(strategy: dict) -> int:
-    enabled = _enabled_module_ids(strategy)
-    if "action.pause_auto_sell" in enabled or "action.steam_list" not in enabled:
-        return 4
-    if "guard.profit_ratio" in enabled:
-        return 3
-    if "guard.rising_trend_wait" in enabled:
-        return 2
-    return 1
-
-
 def apply_strategy_to_config(config: dict, strategy_type: str, strategy_override: Optional[dict] = None) -> dict:
+    if strategy_type not in STRATEGY_TYPES:
+        raise StrategyError("strategy_type 必须是 buy")
     cfg = copy.deepcopy(config)
     if strategy_override is not None:
         strategy = copy.deepcopy(strategy_override)
@@ -1439,86 +1157,59 @@ def apply_strategy_to_config(config: dict, strategy_type: str, strategy_override
     }
     pipe = cfg.setdefault("pipeline", {})
     stability = cfg.setdefault("stability", {})
-    if strategy_type == "buy":
-        if "buy.steamdt_top_n" in enabled_ids:
-            params = _step_params(strategy, "buy.steamdt_top_n")
-            if "iflow_top_n" in params:
-                pipe["iflow_top_n"] = int(params.get("iflow_top_n") or 0)
-        else:
-            pipe["iflow_top_n"] = 0
-        if "buy.exclude_keywords" in enabled_ids:
-            params = _step_params(strategy, "buy.exclude_keywords")
-            if isinstance(params.get("exclude_keywords"), list):
-                pipe["exclude_keywords"] = [str(x) for x in params.get("exclude_keywords") if str(x).strip()]
-        else:
-            pipe["exclude_keywords"] = []
-        if "guard.max_discount" in enabled_ids:
-            params = _step_params(strategy, "guard.max_discount")
-            if "max_discount" in params:
-                pipe["max_discount"] = float(params.get("max_discount"))
-        else:
-            pipe["max_discount"] = None
-        if "guard.sell_pressure" in enabled_ids:
-            params = _step_params(strategy, "guard.sell_pressure")
-            if "sell_pressure_orders_n" in params:
-                pipe["sell_pressure_orders_n"] = int(params.get("sell_pressure_orders_n") or 5)
-            if "sell_pressure_threshold" in params:
-                pipe["sell_pressure_threshold"] = float(params.get("sell_pressure_threshold") or 0)
-        else:
-            pipe["sell_pressure_threshold"] = None
-        if "guard.history_stability" in enabled_ids:
-            for key, val in _step_params(strategy, "guard.history_stability").items():
+    if "buy.steamdt_top_n" in enabled_ids:
+        params = _step_params(strategy, "buy.steamdt_top_n")
+        if "iflow_top_n" in params:
+            pipe["iflow_top_n"] = int(params.get("iflow_top_n") or 0)
+    else:
+        pipe["iflow_top_n"] = 0
+    if "buy.exclude_keywords" in enabled_ids:
+        params = _step_params(strategy, "buy.exclude_keywords")
+        if isinstance(params.get("exclude_keywords"), list):
+            pipe["exclude_keywords"] = [str(x) for x in params.get("exclude_keywords") if str(x).strip()]
+    else:
+        pipe["exclude_keywords"] = []
+    if "guard.max_discount" in enabled_ids:
+        params = _step_params(strategy, "guard.max_discount")
+        if "max_discount" in params:
+            pipe["max_discount"] = float(params.get("max_discount"))
+    else:
+        pipe["max_discount"] = None
+    if "guard.sell_pressure" in enabled_ids:
+        params = _step_params(strategy, "guard.sell_pressure")
+        if "sell_pressure_orders_n" in params:
+            pipe["sell_pressure_orders_n"] = int(params.get("sell_pressure_orders_n") or 5)
+        if "sell_pressure_threshold" in params:
+            pipe["sell_pressure_threshold"] = float(params.get("sell_pressure_threshold") or 0)
+    else:
+        pipe["sell_pressure_threshold"] = None
+    if "guard.history_stability" in enabled_ids:
+        for key, val in _step_params(strategy, "guard.history_stability").items():
+            if key in stability:
+                stability[key] = val
+    for module_id in (
+        "guard.history_data_window",
+        "guard.volatility_cv",
+        "guard.trend_quality",
+        "guard.price_position",
+    ):
+        if module_id in enabled_ids:
+            for key, val in _step_params(strategy, module_id).items():
                 if key in stability:
                     stability[key] = val
-        for module_id in (
-            "guard.history_data_window",
-            "guard.volatility_cv",
-            "guard.trend_quality",
-            "guard.price_position",
-        ):
-            if module_id in enabled_ids:
-                for key, val in _step_params(strategy, module_id).items():
-                    if key in stability:
-                        stability[key] = val
-        for module_id in (
-            "guard.safe_purchase_limit",
-            "guard.purchase_hard_cap",
-            "guard.purchase_liquidity_cap",
-            "guard.low_price_purchase_guard",
-        ):
-            if module_id in enabled_ids:
-                for key, val in _step_params(strategy, module_id).items():
-                    pipe[key] = val
-        if "guard.target_balance" in enabled_ids:
-            params = _step_params(strategy, "guard.target_balance")
-            if "target_balance" in params:
-                pipe["target_balance"] = float(params.get("target_balance") or pipe.get("target_balance", 100))
-    else:
-        pipe["sell_strategy"] = _derive_sell_strategy_number(strategy)
-        if "guard.max_listings_per_item" in enabled_ids:
-            params = _step_params(strategy, "guard.max_listings_per_item")
-            if "max_listings_per_item" in params:
-                pipe["max_listings_per_item"] = int(params.get("max_listings_per_item") or 5)
-        if "pricing.steam_wall_gap" in enabled_ids:
-            for key, val in _step_params(strategy, "pricing.steam_wall_gap").items():
+    for module_id in (
+        "guard.safe_purchase_limit",
+        "guard.purchase_hard_cap",
+        "guard.purchase_liquidity_cap",
+        "guard.low_price_purchase_guard",
+    ):
+        if module_id in enabled_ids:
+            for key, val in _step_params(strategy, module_id).items():
                 pipe[key] = val
-        if "pricing.steam_wall_price" in enabled_ids:
-            for key, val in _step_params(strategy, "pricing.steam_wall_price").items():
-                pipe[key] = val
-            if "pricing.price_offset" not in enabled_ids and "pricing.steam_wall_gap" not in enabled_ids:
-                pipe["sell_price_offset"] = 0
-        if "pricing.price_offset" in enabled_ids:
-            params = _step_params(strategy, "pricing.price_offset")
-            if "sell_price_offset" in params:
-                pipe["sell_price_offset"] = float(params.get("sell_price_offset") or 0)
-        if "guard.rising_trend_wait" in enabled_ids:
-            params = _step_params(strategy, "guard.rising_trend_wait")
-            if "sell_trend_days" in params:
-                pipe["sell_trend_days"] = int(params.get("sell_trend_days") or 7)
-        if "guard.profit_ratio" in enabled_ids:
-            params = _step_params(strategy, "guard.profit_ratio")
-            if "profit_ratio_multiplier" in params:
-                pipe["profit_ratio_multiplier"] = float(params.get("profit_ratio_multiplier") or 1.05)
+    if "guard.target_balance" in enabled_ids:
+        params = _step_params(strategy, "guard.target_balance")
+        if "target_balance" in params:
+            pipe["target_balance"] = float(params.get("target_balance") or pipe.get("target_balance", 100))
     return cfg
 
 
@@ -1741,14 +1432,7 @@ def evaluate_strategy_runtime_modules(
     return results, None
 
 
-def _sample_strategy_context(strategy_type: str) -> Dict[str, Any]:
-    if strategy_type == "sell":
-        return {
-            "item": {"name": "Sample Item", "assetid": "123", "market_hash_name": "Sample Item"},
-            "buy_record": {"price": 8.0, "market_price": 12.0},
-            "listing": {"list_price": 12.8, "display_price": 12.8},
-            "config": {"pipeline": {}, "stability": {}},
-        }
+def _sample_strategy_context() -> Dict[str, Any]:
     return {
         "item": {
             "name": "Sample Item",
@@ -1763,10 +1447,7 @@ def _sample_strategy_context(strategy_type: str) -> Dict[str, Any]:
 
 
 def _simulate_builtin_step(module_id: str, step: dict, outputs: dict) -> Dict[str, Any]:
-    if module_id == "action.pause_auto_sell":
-        status = "wait"
-        reason = "Simulation: auto sell would pause here"
-    elif str(module_id).startswith("action."):
+    if str(module_id).startswith("action."):
         status = "action"
         reason = "模拟跳过真实交易 / Simulation skipped the real trading action"
     else:
@@ -1793,11 +1474,8 @@ def get_strategy_payload() -> Dict[str, Any]:
         "modules": sorted(modules, key=lambda m: (m.get("origin") != "builtin", m.get("category", ""), m.get("id", ""))),
         "active": active,
         "limits": copy.deepcopy(STRATEGY_STEP_LIMITS),
-        "legacy_sell_strategy": int((cfg.get("pipeline") or {}).get("sell_strategy", 4) or 4),
         "available_data": _available_data_catalog(),
     }
-
-
 
 
 def simulate_strategy(raw: dict) -> Dict[str, Any]:
@@ -1808,7 +1486,7 @@ def simulate_strategy(raw: dict) -> Dict[str, Any]:
     if errors:
         return {"ok": False, "errors": errors, "results": []}
     modules = _module_by_id()
-    context = _sample_strategy_context(strategy.get("strategy_type"))
+    context = _sample_strategy_context()
     outputs: Dict[str, Any] = {}
     results = []
     for idx, step in enumerate(strategy.get("steps") or [], start=1):

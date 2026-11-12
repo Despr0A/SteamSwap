@@ -54,7 +54,6 @@ from utils.time import (
     now_in_configured_timezone,
     resolve_configured_timezone,
 )
-from app.sell_pipeline import run_sell_phase_on_inventory_update
 
 DEFAULT_RETRY_INTERVAL_SECONDS = 300
 DEFAULT_START_TIME_HOUR = 8
